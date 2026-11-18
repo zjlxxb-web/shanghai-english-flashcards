@@ -10,7 +10,7 @@
   <meta property="og:type" content="website">
   <title>单词放学啦！ · 沪教英语闪卡</title>
   <link rel="icon" href="assets/comic/book.webp" type="image/webp">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
   <script src="words.js" defer></script>
   <script src="app.js?v=3" defer></script>
 </head>
@@ -53,14 +53,8 @@
               <button type="button" data-accent="us" aria-pressed="false"><b aria-hidden="true">US</b> 美式</button>
             </div>
           </div>
-          <div class="setting view-setting">
-            <span id="view-label">视图</span>
-            <div class="segmented" role="group" aria-labelledby="view-label">
-              <button type="button" data-view="focus" aria-pressed="true">单张</button>
-              <button type="button" data-view="grid" aria-pressed="false">多张</button>
-            </div>
-          </div>
-          <label class="setting style-setting">风格
+          <label class="setting style-setting">
+            <span>风格</span>
             <select id="style-select">
               <option value="textbook" selected>课本</option>
               <option value="comic">漫画</option>
@@ -71,6 +65,13 @@
               <option value="pixel">像素</option>
             </select>
           </label>
+          <div class="setting">
+            <span id="view-label">视图</span>
+            <div class="segmented" role="group" aria-labelledby="view-label">
+              <button type="button" data-view="focus" aria-pressed="true">单张</button>
+              <button type="button" data-view="grid" aria-pressed="false">多张</button>
+            </div>
+          </div>
         </div>
         <div class="lesson-header">
           <div>
