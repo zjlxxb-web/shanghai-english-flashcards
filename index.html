@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#faf8f0">
+  <meta name="description" content="沪教版一年级上册英语单词闪卡。左右滑动学单词，点卡片听英式和美式发音，五种画风可切换。">
+  <meta property="og:title" content="单词放学啦！ · 沪教英语闪卡">
+  <meta property="og:description" content="一年级上册 · 看图认单词，点一下听英式和美式发音。">
+  <meta property="og:type" content="website">
+  <title>单词放学啦！ · 沪教英语闪卡</title>
+  <link rel="icon" href="assets/comic/book.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+  <script src="words.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href="./" aria-label="单词放学啦，首页">
+        <span class="brand-icon" aria-hidden="true">Aa</span>
+        <span>单词放学啦！<small>WORD CLUB</small></span>
+      </a>
+      <span class="grade">沪教版 · 一年级上册</span>
+    </div>
+  </header>
+  <main class="wrap">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="hero-label"><span aria-hidden="true"></span> ENGLISH WORD CLUB</p>
+        <h1 id="page-title">我的英语<span>闪卡</span></h1>
+        <p class="intro">看图认单词，点一下听发音。</p>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <span class="orbit"></span><span class="hero-spark spark-a">✦</span><span class="hero-spark spark-b">✧</span>
+        <span class="deco-tile tile-book"><img data-hero-art="book" alt=""></span>
+        <span class="deco-tile tile-pencil"><img data-hero-art="pencil" alt=""></span>
+        <span class="deco-tile tile-bag"><img data-hero-art="bag" alt=""></span>
+      </div>
+    </section>
+
+    <div class="learn">
+      <aside class="rail">
+        <h2 id="lessons-title">课程目录</h2>
+        <nav id="lesson-list" aria-labelledby="lessons-title"></nav>
+        <label class="mobile-lessons">选择课程 <select id="lesson-select"></select></label>
+      </aside>
+      <section class="study" aria-labelledby="lesson-title">
+        <div class="toolbar">
+          <div class="setting">
+            <span id="accent-label">发音</span>
+            <div class="segmented" role="group" aria-labelledby="accent-label">
+              <button type="button" data-accent="uk" aria-pressed="true"><b aria-hidden="true">UK</b> 英式</button>
+              <button type="button" data-accent="us" aria-pressed="false"><b aria-hidden="true">US</b> 美式</button>
+            </div>
+          </div>
+          <div class="setting view-setting">
+            <span id="view-label">视图</span>
+            <div class="segmented" role="group" aria-labelledby="view-label">
+              <button type="button" data-view="focus" aria-pressed="false">单张</button>
+              <button type="button" data-view="grid" aria-pressed="true">多张</button>
+            </div>
+          </div>
+          <label class="setting style-setting">画风
+            <select id="style-select">
+              <option value="comic">漫画</option>
+              <option value="cute">可爱</option>
+              <option value="textbook" selected>课本风</option>
+              <option value="maruko">樱桃小丸子风</option>
+              <option value="pig">小猪佩奇风</option>
+            </select>
+          </label>
+        </div>
+        <div class="lesson-header">
+          <div>
+            <div class="lesson-kicker"><span id="lesson-number"></span><span aria-hidden="true">/</span><span id="lesson-count"></span></div>
+            <h2 id="lesson-title"></h2>
+            <p id="lesson-english" lang="en"></p>
+          </div>
+          <button class="recall" id="recall" type="button" aria-pressed="false">隐藏中文</button>
+        </div>
+        <div id="cards" class="cards" aria-label="单词闪卡"></div>
+        <p class="audio-status" id="audio-status" role="status" hidden></p>
+        <div class="card-nav" id="card-nav" hidden>
+          <button type="button" id="previous-card" aria-label="上一张">‹</button>
+          <div class="card-position">
+            <span id="card-position" aria-live="polite" aria-atomic="true"></span>
+            <span class="swipe-hint">左右滑动换卡</span>
+          </div>
+          <button type="button" id="next-card" aria-label="下一张">›</button>
+        </div>
+        <div class="lesson-bottom"><button type="button" id="previous">← 上一单元</button><button type="button" id="next">下一单元 →</button></div>
+      </section>
+    </div>
+    <footer>
+      <span>沪教版小学英语 · 一年级上册</span>
+      <span><a id="textbook-link" href="https://github.com/ZhiquAI/shanghai-english-reader" target="_blank" rel="noopener">查看本单元教材</a><span aria-hidden="true"> · </span><a href="credits.html">素材来源</a></span>
+    </footer>
+  </main>
+  <audio id="voice" preload="none"></audio>
+  <noscript><p class="wrap">请在支持 JavaScript 的浏览器中打开本页。</p></noscript>
+</body>
+</html>
