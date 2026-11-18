@@ -7,6 +7,7 @@
   const select = byId('lesson-select');
   const styleSelect = byId('style-select');
   const cards = byId('cards');
+  const stage = byId('deck-stage');
   const cardNav = byId('card-nav');
   const previousCard = byId('previous-card');
   const nextCard = byId('next-card');
@@ -15,7 +16,6 @@
   const heroArt = Array.from(document.querySelectorAll('[data-hero-art]'));
   const buttons = Array.from(document.querySelectorAll('[data-accent], [data-view]'));
   const styles = Array.from(styleSelect.options, (option) => option.value);
-  const mobile = window.matchMedia('(max-width: 690px)');
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const speaker = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>';
   const colors = [['#ffedc1', '#bc760b'], ['#e3edff', '#5169bf'], ['#e9e1ff', '#8750ae'], ['#ffe4ed', '#b65577'], ['#dff2dc', '#448858']];
@@ -23,8 +23,7 @@
   let lessonIndex = Number.isInteger(saved.lesson) && window.lessons[saved.lesson] ? saved.lesson : 1;
   let accent = saved.accent === 'us' ? 'us' : 'uk';
   let style = styles.includes(saved.style) ? saved.style : 'textbook';
-  let preferredView = ['focus', 'grid'].includes(saved.view) ? saved.view : null;
-  let view = preferredView || (mobile.matches ? 'focus' : 'grid');
+  let view = saved.view === 'grid' ? 'grid' : 'focus';
   let cardIndex = 0;
   let scrollTimer;
   let hidden = false;
@@ -42,7 +41,7 @@
   }
 
   function saveSettings() {
-    try { localStorage.setItem(configKey, JSON.stringify({lesson: lessonIndex, accent, style, view: preferredView, card: cardIndex})); }
+    try { localStorage.setItem(configKey, JSON.stringify({lesson: lessonIndex, accent, style, view, card: cardIndex})); }
     catch { /* 微信隐私设置禁用存储时仍可学习。 */ }
   }
 
@@ -128,6 +127,7 @@
     const icon = make('span', 'speaker');
     icon.setAttribute('aria-hidden', 'true');
     icon.innerHTML = speaker;
+    icon.appendChild(make('span', 'speaker-label', '听发音'));
     copy.append(english, make('span', 'meaning', meaning), icon);
     node.append(art, copy);
     node.addEventListener('click', () => {
@@ -202,6 +202,7 @@
 
   function renderView() {
     clearTimeout(scrollTimer);
+    stage.classList.toggle('focus-stage', view === 'focus');
     cards.classList.toggle('focus', view === 'focus');
     visibleArt();
     updateCardNav();
@@ -257,8 +258,7 @@
       accent = button.dataset.accent;
     }
     if (button.dataset.view) {
-      preferredView = button.dataset.view;
-      view = preferredView;
+      view = button.dataset.view;
       renderView();
     }
     updateSettings();
@@ -284,14 +284,7 @@
     event.preventDefault();
     moveCard(event.key === 'ArrowRight' ? 1 : -1);
   });
-  window.addEventListener('resize', () => {
-    const nextView = preferredView || (mobile.matches ? 'focus' : 'grid');
-    if (nextView === view) alignCard();
-    else {
-      view = nextView;
-      renderView();
-    }
-  });
+  window.addEventListener('resize', () => alignCard());
 
   const recall = byId('recall');
   recall.addEventListener('click', () => {
@@ -303,7 +296,7 @@
 
   function move(offset) {
     chooseLesson(lessonIndex + offset);
-    byId('lesson-title').scrollIntoView({block: 'center'});
+    byId('lesson-title').scrollIntoView({block: 'start'});
   }
   byId('previous').addEventListener('click', () => move(-1));
   byId('next').addEventListener('click', () => move(1));

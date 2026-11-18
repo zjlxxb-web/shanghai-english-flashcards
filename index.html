@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#faf8f0">
-  <meta name="description" content="沪教版一年级上册英语单词闪卡。左右滑动学单词，点卡片听英式和美式发音，五种画风可切换。">
+  <meta name="description" content="沪教版一年级上册英语单词闪卡。左右滑动学单词，点卡片听英式和美式发音，七种风格可切换。">
   <meta property="og:title" content="单词放学啦！ · 沪教英语闪卡">
   <meta property="og:description" content="一年级上册 · 看图认单词，点一下听英式和美式发音。">
   <meta property="og:type" content="website">
   <title>单词放学啦！ · 沪教英语闪卡</title>
   <link rel="icon" href="assets/comic/book.webp" type="image/webp">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
   <script src="words.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=3" defer></script>
 </head>
 <body>
   <header class="top">
@@ -27,15 +27,14 @@
   <main class="wrap">
     <section class="hero" aria-labelledby="page-title">
       <div class="hero-copy">
-        <p class="hero-label"><span aria-hidden="true"></span> ENGLISH WORD CLUB</p>
         <h1 id="page-title">我的英语<span>闪卡</span></h1>
         <p class="intro">看图认单词，点一下听发音。</p>
       </div>
       <div class="hero-art" aria-hidden="true">
         <span class="orbit"></span><span class="hero-spark spark-a">✦</span><span class="hero-spark spark-b">✧</span>
-        <span class="deco-tile tile-book"><img data-hero-art="book" alt=""></span>
-        <span class="deco-tile tile-pencil"><img data-hero-art="pencil" alt=""></span>
-        <span class="deco-tile tile-bag"><img data-hero-art="bag" alt=""></span>
+        <span class="deco-tile tile-book"><img data-hero-art="book" alt="" loading="lazy"></span>
+        <span class="deco-tile tile-pencil"><img data-hero-art="pencil" alt="" loading="lazy"></span>
+        <span class="deco-tile tile-bag"><img data-hero-art="bag" alt="" loading="lazy"></span>
       </div>
     </section>
 
@@ -57,17 +56,19 @@
           <div class="setting view-setting">
             <span id="view-label">视图</span>
             <div class="segmented" role="group" aria-labelledby="view-label">
-              <button type="button" data-view="focus" aria-pressed="false">单张</button>
-              <button type="button" data-view="grid" aria-pressed="true">多张</button>
+              <button type="button" data-view="focus" aria-pressed="true">单张</button>
+              <button type="button" data-view="grid" aria-pressed="false">多张</button>
             </div>
           </div>
-          <label class="setting style-setting">画风
+          <label class="setting style-setting">风格
             <select id="style-select">
+              <option value="textbook" selected>课本</option>
               <option value="comic">漫画</option>
               <option value="cute">可爱</option>
-              <option value="textbook" selected>课本风</option>
-              <option value="maruko">樱桃小丸子风</option>
-              <option value="pig">小猪佩奇风</option>
+              <option value="maruko">樱桃小丸子</option>
+              <option value="pig">小猪佩奇</option>
+              <option value="shin">蜡笔小新</option>
+              <option value="pixel">像素</option>
             </select>
           </label>
         </div>
@@ -79,16 +80,18 @@
           </div>
           <button class="recall" id="recall" type="button" aria-pressed="false">隐藏中文</button>
         </div>
-        <div id="cards" class="cards" aria-label="单词闪卡"></div>
-        <p class="audio-status" id="audio-status" role="status" hidden></p>
-        <div class="card-nav" id="card-nav" hidden>
-          <button type="button" id="previous-card" aria-label="上一张">‹</button>
-          <div class="card-position">
-            <span id="card-position" aria-live="polite" aria-atomic="true"></span>
-            <span class="swipe-hint">左右滑动换卡</span>
+        <div id="deck-stage" class="deck-stage">
+          <div id="cards" class="cards" aria-label="单词闪卡"></div>
+          <div class="card-nav" id="card-nav" hidden>
+            <button type="button" id="previous-card" aria-label="上一张">‹</button>
+            <div class="card-position">
+              <span id="card-position" aria-live="polite" aria-atomic="true"></span>
+              <span class="swipe-hint">左右滑动换卡</span>
+            </div>
+            <button type="button" id="next-card" aria-label="下一张">›</button>
           </div>
-          <button type="button" id="next-card" aria-label="下一张">›</button>
         </div>
+        <p class="audio-status" id="audio-status" role="status" hidden></p>
         <div class="lesson-bottom"><button type="button" id="previous">← 上一单元</button><button type="button" id="next">下一单元 →</button></div>
       </section>
     </div>
