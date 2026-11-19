@@ -146,6 +146,18 @@ h1 span { color: #ebf783; }
   object-fit: contain;
   pointer-events: none;
 }
+.cards.focus .card[data-image-state] .card-art::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+  content: "正在加载图片…";
+}
+.cards.focus .card[data-image-state] .scene-art { visibility: hidden; }
+.counting-lesson .cards.focus .card[data-image-state] .card-art { min-height: 140px; }
+.cards.focus .card[data-image-state="error"] .card-art::after { content: "图片暂未加载"; }
 [data-art="pixel"] .scene-art { image-rendering: pixelated; }
 .card-copy { position: relative; width: 100%; min-height: 88px; padding: 13px 50px 12px 13px; }
 .word { display: block; font: 850 clamp(17px, 2.2vw, 24px)/1.16 "Aptos", "Arial Rounded MT Bold", system-ui, sans-serif; letter-spacing: -.025em; overflow-wrap: anywhere; }

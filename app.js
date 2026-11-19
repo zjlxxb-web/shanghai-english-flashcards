@@ -33,8 +33,10 @@
   let style = styles.includes(requestedStyle) ? requestedStyle : styles.includes(saved.style) ? saved.style : 'textbook';
   let view = saved.view === 'grid' ? 'grid' : 'focus';
   let cardIndex = 0;
-  let scrollTimer;
   let artworkRequest;
+  let scrollTimer;
+  let compactCards = false;
+  const decodedSources = new WeakMap();
   let hidden = false;
   let activeCard = null;
   let playback = 0;
@@ -62,7 +64,9 @@
   }
 
   function assetUrl(path) {
-    return window.flashcardAssets?.[path] || path;
+    const embedded = window.flashcardAssets?.[path];
+    if (embedded) return embedded;
+    return path.startsWith('assets/scenes-card/cute/') ? path + '?v=2' : path;
   }
 
   function wordKey(word) {
@@ -78,22 +82,30 @@
     return node;
   }
 
+  function cardAssetPaths(scenePath) {
+    const webp = window.hdSceneAssetPaths?.[scenePath];
+    if (!webp) return [];
+    if (!compactCards) return [webp];
+    const avif = webp.replace('scenes-card/', 'scenes-card-lite/').replace(/\.webp$/, '.avif');
+    return [avif, webp];
+  }
+
   function applyArt(node) {
     const isScene = node.dataset.artKind === 'scene';
     const key = node.dataset.image || node.dataset.heroArt;
     const directory = isScene ? 'scenes/' + style : style;
     const path = 'assets/' + directory + '/' + key + '.webp';
     const standardPath = window.sceneAssetPaths?.[path] || path;
-    const cardPath = isScene && view === 'focus'
-      ? window.hdSceneAssetPaths?.[path] : null;
-    const sourcePath = cardPath || standardPath;
+    const sources = isScene && view === 'focus' ? cardAssetPaths(path) : [];
+    sources.push(standardPath);
+    const sourcePath = sources[0];
     if (node.dataset.appliedStyle === style && node.dataset.appliedPath === sourcePath) return;
     const imageStyle = style;
-    let triedStandard = !cardPath;
+    let attempt = 0;
     node.onerror = () => {
-      if (!triedStandard) {
-        triedStandard = true;
-        node.src = assetUrl(standardPath);
+      const fallback = sources[++attempt];
+      if (fallback) {
+        node.src = assetUrl(fallback);
         return;
       }
       node.onerror = null;
@@ -148,7 +160,13 @@
     node.type = 'button';
     const art = make('span', 'card-art');
     art.setAttribute('aria-hidden', 'true');
-    art.appendChild(image(wordKey(word), 'scene-art', 'scene'));
+    const scene = image(wordKey(word), 'scene-art', 'scene');
+    scene.addEventListener('load', async () => {
+      if (view !== 'focus' || !node.dataset.imageState) return;
+      await decodeCardImage(scene);
+      if (view === 'focus' && cardImageReady(scene)) delete node.dataset.imageState;
+    });
+    art.appendChild(scene);
     const copy = make('span', 'card-copy');
     const english = make('span', 'word', word);
     english.lang = 'en';
@@ -189,7 +207,7 @@
     artworkRequest?.image?.removeAttribute('src');
     const request = {};
     artworkRequest = request;
-    const neighbors = [];
+    const queued = [];
     let currentImage;
     deck.forEach((card, index) => {
       const current = index === cardIndex;
@@ -198,6 +216,7 @@
       else card.removeAttribute('aria-hidden');
       const node = card.querySelector('.scene-art');
       if (!focused) {
+        delete card.dataset.imageState;
         node.loading = 'lazy';
         node.fetchPriority = 'auto';
         applyArt(node);
@@ -205,35 +224,68 @@
         node.loading = 'eager';
         node.fetchPriority = 'high';
         currentImage = node;
-      } else if (Math.abs(index - cardIndex) === 1) {
-        neighbors.push(node);
-        node.fetchPriority = 'low';
-        // Drop queued work from a previous style before warming the new one.
-        if (node.dataset.appliedStyle !== style) clearImage(node);
       } else {
-        node.fetchPriority = 'low';
-        // Keep visited cards available for a swipe back within this lesson.
+        if (!node.naturalWidth || node.dataset.appliedStyle !== style) card.dataset.imageState = 'loading';
+        else delete card.dataset.imageState;
         if (node.dataset.appliedStyle !== style && node.hasAttribute('src')) clearImage(node);
+        queued.push({index, card, node});
       }
     });
     if (!currentImage) {
       updateDecorativeArt();
       return;
     }
-    // Let the card the reader is looking at finish before fetching other artwork.
-    loadCurrentArt(currentImage, request).then(() => {
-      if (artworkRequest !== request) return;
-      for (const node of neighbors) {
-        node.loading = 'eager';
-        applyArt(node);
+    const currentCard = deck[cardIndex];
+    const cold = !currentImage.naturalWidth;
+    if (cold) currentCard.dataset.imageState = 'loading';
+    const currentArtwork = loadCurrentArt(currentImage, request);
+    const center = cardIndex;
+    queued.sort((a, b) => Math.abs(a.index - center) - Math.abs(b.index - center));
+    const warmCard = async ({card, node}) => {
+      const ready = await prepareCardImage(node, 'low');
+      if (artworkRequest === request) {
+        if (ready) delete card.dataset.imageState;
+        else card.dataset.imageState = 'error';
       }
+    };
+    // Open a cold lesson with the current image and its neighbors already in flight.
+    const nearby = cold ? queued.splice(0, 2).map(warmCard) : [];
+    currentArtwork.then(async () => {
+      if (artworkRequest !== request) return;
+      if (cardImageReady(currentImage)) delete currentCard.dataset.imageState;
+      else if (!currentImage.naturalWidth) currentCard.dataset.imageState = 'error';
+      const warmImages = queued.map(warmCard);
+      await Promise.all(cold ? nearby : warmImages.slice(0, 2));
+      if (artworkRequest !== request) return;
       updateDecorativeArt();
     });
   }
 
+  function cardImageReady(node) {
+    return node.dataset.appliedStyle === style && node.complete && node.naturalWidth > 0 && node.src === node.currentSrc &&
+      decodedSources.get(node) === node.currentSrc;
+  }
+
+  async function prepareCardImage(node, priority) {
+    if (cardImageReady(node)) return true;
+    node.loading = 'eager';
+    if (node.fetchPriority !== 'high' || priority === 'high') node.fetchPriority = priority;
+    applyArt(node);
+    await decodeCardImage(node);
+    return cardImageReady(node);
+  }
+
+  async function decodeCardImage(node) {
+    const source = node.src;
+    try {
+      await node.decode();
+      if (node.currentSrc === source) decodedSources.set(node, source);
+    } catch { /* Keep the current card visible if its destination cannot load. */ }
+  }
+
   async function loadCurrentArt(node, request) {
     const path = 'assets/scenes/' + style + '/' + node.dataset.image + '.webp';
-    const cardPath = window.hdSceneAssetPaths?.[path];
+    const [cardPath] = cardAssetPaths(path);
     if (cardPath && node.naturalWidth && node.dataset.appliedStyle !== style) {
       // Keep the last sharp image visible until the new style can replace it.
       const preview = new Image();
@@ -245,7 +297,7 @@
     }
     if (artworkRequest !== request) return;
     applyArt(node);
-    try { await node.decode(); } catch { /* A failed card must not block the other artwork. */ }
+    await decodeCardImage(node);
   }
 
   function clearImage(node) {
@@ -382,24 +434,29 @@
     saveSettings();
   }));
 
+  function syncCardToScroll() {
+    if (view !== 'focus') return;
+    const {scrollLeft} = cards;
+    let nearest = 0;
+    let distance = Math.abs(scrollLeft - cardOffset(nearest));
+    for (let index = 1; index < cards.children.length; index += 1) {
+      const nextDistance = Math.abs(scrollLeft - cardOffset(index));
+      if (nextDistance < distance) {
+        nearest = index;
+        distance = nextDistance;
+      }
+    }
+    setCard(nearest);
+  }
   cards.addEventListener('scroll', () => {
     if (view !== 'focus') return;
     clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => {
-      if (view !== 'focus') return;
-      const {scrollLeft} = cards;
-      let nearest = 0;
-      let distance = Math.abs(scrollLeft - cardOffset(nearest));
-      for (let index = 1; index < cards.children.length; index += 1) {
-        const nextDistance = Math.abs(scrollLeft - cardOffset(index));
-        if (nextDistance < distance) {
-          nearest = index;
-          distance = nextDistance;
-        }
-      }
-      setCard(nearest);
-    }, 100);
+    scrollTimer = setTimeout(syncCardToScroll, 100);
   }, {passive: true});
+  cards.addEventListener('scrollend', () => {
+    clearTimeout(scrollTimer);
+    syncCardToScroll();
+  });
   previousCard.addEventListener('click', () => moveCard(-1));
   nextCard.addEventListener('click', () => moveCard(1));
   cards.addEventListener('keydown', (event) => {
@@ -423,5 +480,16 @@
   }
   byId('previous').addEventListener('click', () => move(-1));
   byId('next').addEventListener('click', () => move(1));
-  chooseLesson(lessonIndex, requestedLesson >= 0 ? 0 : saved.card);
+  async function loadFirstLesson() {
+    if (!window.flashcardAssets) {
+      const probe = new Image();
+      probe.src = 'data:image/avif;base64,AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAAB0AAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBjbwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAABZpcG1hAAAAAAAAAAEAAQOBAgMAAAAlbWRhdBIACgc4ADaQENBpMhAZQmMEwAA0AACQQMkcYIpq';
+      try {
+        await probe.decode();
+        compactCards = probe.naturalWidth === 2;
+      } catch { /* Use WebP when the browser cannot decode AVIF. */ }
+    }
+    chooseLesson(lessonIndex, requestedLesson >= 0 ? 0 : saved.card);
+  }
+  loadFirstLesson();
 })();
