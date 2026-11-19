@@ -10,9 +10,9 @@
   <meta property="og:type" content="website">
   <title>单词放学啦！ · 沪教英语闪卡</title>
   <link rel="icon" href="assets/comic/book.webp" type="image/webp">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
   <script src="words.js?v=8" defer></script>
-  <script src="app.js?v=10" defer></script>
+  <script src="app.js?v=11" defer></script>
 </head>
 <body>
   <header class="top">
@@ -42,7 +42,14 @@
       <aside class="rail">
         <h2 id="lessons-title">课程目录</h2>
         <nav id="lesson-list" aria-labelledby="lessons-title"></nav>
-        <label class="mobile-lessons"><span class="setting-label">选择课程</span><select id="lesson-select"></select></label>
+        <details class="mobile-lessons" id="lesson-picker">
+          <summary id="lesson-picker-summary" aria-labelledby="lesson-picker-label lesson-current">
+            <span id="lesson-picker-label" class="setting-label">选择课程</span>
+            <img id="lesson-current-art" class="unit-icon" alt="">
+            <span id="lesson-current"></span>
+          </summary>
+          <div id="lesson-options" class="lesson-options" role="group" aria-label="课程目录"></div>
+        </details>
       </aside>
       <section class="study" aria-labelledby="lesson-title">
         <div class="toolbar">

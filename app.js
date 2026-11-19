@@ -4,7 +4,11 @@
   const configKey = 'shanghai-flashcards-v2';
   const byId = (id) => document.getElementById(id);
   const tabs = byId('lesson-list');
-  const select = byId('lesson-select');
+  const lessonPicker = byId('lesson-picker');
+  const lessonPickerSummary = byId('lesson-picker-summary');
+  const lessonOptions = byId('lesson-options');
+  const currentLessonName = byId('lesson-current');
+  const currentLessonArt = byId('lesson-current-art');
   const styleSelect = byId('style-select');
   const cards = byId('cards');
   const stage = byId('deck-stage');
@@ -233,7 +237,8 @@
   function chooseLesson(index, start = 0) {
     stop();
     lessonIndex = index;
-    const [label, title, english, page, , words] = window.lessons[lessonIndex];
+    const [label, title, english, page, icon, words] = window.lessons[lessonIndex];
+    learn.classList.toggle('counting-lesson', icon === 'numbers');
     cardIndex = Number.isInteger(start) && words[start] ? start : 0;
     byId('lesson-number').textContent = label;
     byId('lesson-title').textContent = title;
@@ -242,35 +247,58 @@
     byId('textbook-link').href = 'https://zhiquai.github.io/shanghai-english-reader/#' + page;
     byId('previous').disabled = index === 0;
     byId('next').disabled = index === window.lessons.length - 1;
-    select.value = String(index);
-    Array.from(tabs.children).forEach((tab, i) => {
-      if (i === index) tab.setAttribute('aria-current', 'true');
-      else tab.removeAttribute('aria-current');
-    });
+    lessonPicker.open = false;
+    currentLessonName.textContent = label + ' · ' + title;
+    if (currentLessonArt.dataset.image !== icon) {
+      currentLessonArt.dataset.image = icon;
+      delete currentLessonArt.dataset.appliedStyle;
+    }
+    applyArt(currentLessonArt);
+    for (const list of [tabs, lessonOptions]) {
+      Array.from(list.children).forEach((tab, i) => {
+        if (i === index) tab.setAttribute('aria-current', 'true');
+        else tab.removeAttribute('aria-current');
+      });
+    }
     cards.textContent = '';
     words.forEach((word, i) => cards.appendChild(renderCard(word, i)));
     renderView();
     saveSettings();
   }
 
-  window.lessons.forEach(([label, title, , , icon], index) => {
+  function lessonButton([label, title, , , icon], index, mobile = false) {
     const button = make('button', 'unit');
     button.type = 'button';
     const thumbnail = image(icon, 'unit-icon');
     thumbnail.loading = 'lazy';
     applyArt(thumbnail);
     button.append(thumbnail, make('span', 'unit-name', title), make('span', 'unit-tag', label));
-    button.addEventListener('click', () => chooseLesson(index));
-    tabs.appendChild(button);
-    const option = make('option', '', label + ' · ' + title);
-    option.value = String(index);
-    select.appendChild(option);
+    button.addEventListener('click', () => {
+      chooseLesson(index);
+      if (mobile) lessonPickerSummary.focus({preventScroll: true});
+    });
+    return button;
+  }
+
+  window.lessons.forEach((lesson, index) => {
+    tabs.appendChild(lessonButton(lesson, index));
+    lessonOptions.appendChild(lessonButton(lesson, index, true));
   });
 
-  select.addEventListener('change', () => chooseLesson(Number(select.value)));
+  document.addEventListener('click', (event) => {
+    if (lessonPicker.open && !lessonPicker.contains(event.target)) lessonPicker.open = false;
+  });
+  lessonPicker.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !lessonPicker.open) return;
+    event.preventDefault();
+    lessonPicker.open = false;
+    lessonPickerSummary.focus({preventScroll: true});
+  });
   styleSelect.addEventListener('change', () => {
     style = styleSelect.value;
     tabs.querySelectorAll('img[data-image]').forEach(applyArt);
+    lessonOptions.querySelectorAll('img[data-image]').forEach(applyArt);
+    applyArt(currentLessonArt);
     visibleArt();
     updateSettings();
     saveSettings();
