@@ -210,8 +210,10 @@
         node.fetchPriority = 'low';
         // Drop queued work from a previous style before warming the new one.
         if (node.dataset.appliedStyle !== style) clearImage(node);
-      } else if (node.hasAttribute('src')) {
-        clearImage(node);
+      } else {
+        node.fetchPriority = 'low';
+        // Keep visited cards available for a swipe back within this lesson.
+        if (node.dataset.appliedStyle !== style && node.hasAttribute('src')) clearImage(node);
       }
     });
     if (!currentImage) {
@@ -289,6 +291,9 @@
   function renderView() {
     clearTimeout(scrollTimer);
     const singleCard = view === 'focus';
+    if (singleCard && !cards.classList.contains('focus')) {
+      cards.querySelectorAll('.scene-art[src]').forEach(clearImage);
+    }
     learn.classList.toggle('single-card', singleCard);
     stage.classList.toggle('focus-stage', singleCard);
     cards.classList.toggle('focus', singleCard);
