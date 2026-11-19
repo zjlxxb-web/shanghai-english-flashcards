@@ -34,6 +34,7 @@
   let view = saved.view === 'grid' ? 'grid' : 'focus';
   let cardIndex = 0;
   let scrollTimer;
+  let cardUpgrade;
   let hidden = false;
   let activeCard = null;
   let playback = 0;
@@ -77,7 +78,7 @@
     return node;
   }
 
-  function applyArt(node) {
+  function applyArt(node, current = false) {
     const isScene = node.dataset.artKind === 'scene';
     const key = node.dataset.image || node.dataset.heroArt;
     const directory = isScene ? 'scenes/' + style : style;
@@ -85,28 +86,52 @@
     const standardPath = window.sceneAssetPaths?.[path] || path;
     const hdPath = isScene && view === 'focus'
       ? window.hdSceneAssetPaths?.[path] : null;
-    const sourcePath = hdPath || standardPath;
-    if (node.dataset.appliedStyle === style && node.dataset.appliedPath === sourcePath) return;
-    const source = assetUrl(sourcePath);
-    node.onerror = () => {
-      if (hdPath && node.dataset.appliedPath === hdPath) {
-        const standardSource = assetUrl(standardPath);
-        node.dataset.appliedPath = standardPath;
-        node.src = standardSource;
-        return;
-      }
-      node.onerror = null;
-      const fallbackKey = isScene
-        ? window.lessons.flatMap((lesson) => lesson[5]).find((word) => wordKey(word[0]) === key)?.[2].split(' ')[0]
-        : key;
-      if (fallbackKey) {
-        const fallback = assetUrl('assets/' + style + '/' + fallbackKey + '.webp');
-        if (node.src !== fallback) node.src = fallback;
-      }
-    };
-    node.src = source;
-    node.dataset.appliedStyle = style;
-    node.dataset.appliedPath = sourcePath;
+    if (node.dataset.appliedStyle !== style ||
+        (node.dataset.appliedPath !== standardPath && node.dataset.appliedPath !== hdPath)) {
+      node.onerror = () => {
+        node.onerror = null;
+        const fallbackKey = isScene
+          ? window.lessons.flatMap((lesson) => lesson[5]).find((word) => wordKey(word[0]) === key)?.[2].split(' ')[0]
+          : key;
+        if (fallbackKey) node.src = assetUrl('assets/' + style + '/' + fallbackKey + '.webp');
+      };
+      node.src = assetUrl(standardPath);
+      node.dataset.appliedStyle = style;
+      node.dataset.appliedPath = standardPath;
+    }
+    if (current !== true) return;
+    if (cardUpgrade?.node === node && cardUpgrade.path === hdPath) return;
+    cancelCardUpgrade();
+    if (!hdPath || node.dataset.appliedPath === hdPath) return;
+    const upgrade = {node, path: hdPath};
+    cardUpgrade = upgrade;
+    // Give the lightweight image priority, then replace it with a decoded card image.
+    node.decode().catch(() => {}).then(() => {
+      if (cardUpgrade !== upgrade) return;
+      upgrade.timer = setTimeout(async () => {
+        const full = new Image();
+        upgrade.image = full;
+        full.fetchPriority = 'low';
+        full.src = assetUrl(hdPath);
+        try {
+          await full.decode();
+          if (cardUpgrade === upgrade) {
+            node.src = full.src;
+            node.dataset.appliedPath = hdPath;
+          }
+        } catch { /* Keep the preview if the card image is unavailable. */ }
+        finally {
+          if (cardUpgrade === upgrade) cardUpgrade = undefined;
+        }
+      }, 250);
+    });
+  }
+
+  function cancelCardUpgrade() {
+    if (!cardUpgrade) return;
+    clearTimeout(cardUpgrade.timer);
+    cardUpgrade.image?.removeAttribute('src');
+    cardUpgrade = undefined;
   }
 
   function clearPlaying() {
@@ -181,6 +206,7 @@
 
   function visibleArt() {
     const focused = view === 'focus';
+    if (!focused) cancelCardUpgrade();
     const deck = Array.from(cards.children);
     const updateArt = (card, index) => {
       const current = index === cardIndex;
@@ -190,8 +216,8 @@
       const node = card.querySelector('.scene-art');
       if (!focused || Math.abs(index - cardIndex) <= 1) {
         node.loading = focused ? 'eager' : 'lazy';
-        node.fetchPriority = focused && current ? 'high' : 'auto';
-        applyArt(node);
+        node.fetchPriority = focused ? (current ? 'high' : 'low') : 'auto';
+        applyArt(node, focused && current);
       } else if (node.hasAttribute('src')) {
         node.onerror = null;
         node.removeAttribute('src');
