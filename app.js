@@ -40,6 +40,10 @@
   const sceneLoads = new WeakMap();
   const decodedScenes = new WeakSet();
   const returnPreloads = new WeakSet();
+  const gridPacks = new Map();
+  const gridPackUrls = new Set();
+  const warmUrls = new Set();
+  let speculativeStyle;
   let hidden = false;
   let activeCard = null;
   let playback = 0;
@@ -88,12 +92,14 @@
   function cardAssetPaths(scenePath) {
     const webp = window.hdSceneAssetPaths?.[scenePath];
     if (!webp) return [];
-    if (!compactCards) return [webp];
+    if (window.flashcardAssets) return [webp];
+    const lighterWebp = webp.replace('scenes-card/', 'scenes-card-webp/');
+    if (!compactCards) return [lighterWebp, webp];
     const avif = webp.replace('scenes-card/', 'scenes-card-lite/').replace(/\.webp$/, '.avif');
-    return [avif, webp];
+    return [avif, lighterWebp, webp];
   }
 
-  function applyArt(node, onFailure) {
+  function applyArt(node, onFailure, packedSource) {
     const isScene = node.dataset.artKind === 'scene';
     const key = node.dataset.image || node.dataset.heroArt;
     const imageStyle = node.dataset.sceneStyle || style;
@@ -101,6 +107,7 @@
     const path = 'assets/' + directory + '/' + key + '.webp';
     const standardPath = window.sceneAssetPaths?.[path] || path;
     const sources = isScene && node.dataset.sceneView === 'focus' ? cardAssetPaths(path) : [];
+    if (packedSource) sources.unshift(packedSource);
     sources.push(standardPath);
     const sourcePath = sources[0];
     if (node.dataset.appliedStyle === imageStyle && node.dataset.appliedPath === sourcePath) return;
@@ -171,7 +178,7 @@
     node.type = 'button';
     const art = make('span', 'card-art');
     art.setAttribute('aria-hidden', 'true');
-    cardScenes.set(node, {art, word: wordKey(word), images: new Map()});
+    cardScenes.set(node, {art, word: wordKey(word), index, images: new Map()});
     const copy = make('span', 'card-copy');
     const english = make('span', 'word', word);
     english.lang = 'en';
@@ -225,7 +232,7 @@
     return node;
   }
 
-  function loadScene(node, priority) {
+  function loadScene(node, priority, packedImage) {
     const pending = sceneLoads.get(node);
     if (decodedScenes.has(node)) return pending.promise;
     if (node.fetchPriority !== 'high' || priority === 'high') node.fetchPriority = priority;
@@ -255,10 +262,127 @@
         node.removeAttribute('src');
         finish(false);
       };
-      node.addEventListener('load', ready, {once: true});
-      applyArt(node, () => finish(false));
+      const load = (source) => {
+        if (settled) return;
+        node.addEventListener('load', ready, {once: true});
+        applyArt(node, () => finish(false), source);
+      };
+      if (packedImage) packedImage.then(load);
+      else load();
     });
     return request.promise;
+  }
+
+  async function readGridPack(response, pack) {
+    const stream = response.body?.getReader?.();
+    let chunk = stream ? new Uint8Array() : new Uint8Array(await response.arrayBuffer());
+    async function take(size) {
+      const bytes = new Uint8Array(size);
+      for (let offset = 0; offset < size;) {
+        if (!chunk.length) {
+          const next = stream && await stream.read();
+          if (!next || next.done) throw new Error('Incomplete artwork pack');
+          chunk = next.value;
+        }
+        const count = Math.min(size - offset, chunk.length);
+        bytes.set(chunk.subarray(0, count), offset);
+        chunk = chunk.subarray(count);
+        offset += count;
+      }
+      return bytes;
+    }
+    try {
+      const header = new DataView((await take(4)).buffer);
+      const tableSize = header.getUint32(0, true);
+      if (!tableSize || tableSize > 4096) throw new Error('Invalid artwork index');
+      const files = JSON.parse(new TextDecoder().decode(await take(tableSize)));
+      if (files.length !== pack.words.length || files.some((file, index) => file.word !== pack.words[index])) {
+        throw new Error('Wrong lesson artwork');
+      }
+      for (const [index, {size}] of files.entries()) {
+        if (!Number.isInteger(size) || size <= 0 || size > 200000) throw new Error('Invalid artwork size');
+        const bytes = await take(size);
+        if (pack.controller.signal.aborted) return;
+        const url = URL.createObjectURL(new Blob([bytes], {type: 'image/' + pack.format}));
+        pack.urls.push(url);
+        gridPackUrls.add(url);
+        pack.resolve[index](url);
+      }
+      if (stream) await stream.read();
+    } finally {
+      if (stream) stream.cancel().catch(() => {});
+    }
+  }
+
+  function gridPackFor(imageStyle, priority) {
+    if (window.flashcardAssets || !window.fetch || !window.AbortController || !window.TextDecoder || !URL.createObjectURL) return;
+    const active = imageStyle === style;
+    const existing = gridPacks.get(imageStyle);
+    if (existing) {
+      if (active) existing.active = true;
+      return existing;
+    }
+    const pack = {format: compactCards ? 'avif' : 'webp', active, controller: new AbortController(), urls: [], resolve: []};
+    pack.words = Array.from(cards.children, (card) => cardScenes.get(card).word);
+    pack.images = pack.words.map(() => new Promise((resolve) => pack.resolve.push(resolve)));
+    gridPacks.set(imageStyle, pack);
+    const path = 'assets/scenes-grid-packs/' + imageStyle + '/' + lessonIndex + '.' + pack.format + '.bin';
+    pack.done = fetch(path, {priority, signal: pack.controller.signal})
+      .then((response) => response.ok ? readGridPack(response, pack) : undefined)
+      .catch(() => {})
+      .finally(() => {
+        pack.finished = true;
+        pack.resolve.forEach((resolve) => resolve(null));
+      });
+    return pack;
+  }
+
+  function discardGridPack(imageStyle, pack, keepUrls = false) {
+    gridPacks.delete(imageStyle);
+    pack.controller.abort();
+    if (!keepUrls) pack.urls.forEach((url) => {
+      URL.revokeObjectURL(url);
+      gridPackUrls.delete(url);
+    });
+  }
+
+  function loadCardScene(card, node, priority) {
+    const packedImage = node.dataset.sceneView === 'grid' && !sceneLoads.has(node)
+      ? gridPackFor(node.dataset.sceneStyle, priority)?.images[cardScenes.get(card).index] : null;
+    return loadScene(node, priority, packedImage);
+  }
+
+  function stopSpeculation(nextStyle) {
+    if (!speculativeStyle || speculativeStyle.style === nextStyle) return;
+    speculativeStyle.controller.abort();
+    const {style: imageStyle, pack} = speculativeStyle;
+    if (pack && !pack.active && !pack.finished) discardGridPack(imageStyle, pack);
+    speculativeStyle = undefined;
+  }
+
+  async function prewarmStyles(request) {
+    if (request.warming || artworkRequest !== request || window.flashcardAssets ||
+        !window.fetch || !window.AbortController || navigator.connection?.saveData) return;
+    request.warming = true;
+    const start = styles.indexOf(request.style);
+    const others = styles.slice(start + 1).concat(styles.slice(0, start));
+    for (const imageStyle of others) {
+      if (artworkRequest !== request) return;
+      const {word} = cardScenes.get(request.deck[cardIndex]);
+      const [single] = cardAssetPaths('assets/scenes/' + imageStyle + '/' + word + '.webp');
+      const pack = gridPackFor(imageStyle, 'low');
+      const controller = new AbortController();
+      const job = {style: imageStyle, pack, controller};
+      speculativeStyle = job;
+      const warm = !single || warmUrls.has(single) ? null :
+        fetch(single, {cache: 'force-cache', priority: 'low', signal: controller.signal}).then(async (response) => {
+          if (!response.ok) return;
+          await response.arrayBuffer();
+          warmUrls.add(single);
+        }).catch(() => {});
+      await Promise.all([pack?.done, warm]);
+      if (speculativeStyle === job) speculativeStyle = undefined;
+    }
   }
 
   function visibleArt() {
@@ -272,16 +396,19 @@
     });
     if (!deck.length) return;
     if (artworkRequest?.first === deck[0] && artworkRequest.mode === view && artworkRequest.style === style) {
-      if (focused) loadScene(artworkRequest.images[cardIndex], 'high');
+      if (focused) artworkRequest.promote(cardIndex);
       else loadScene(sceneFor(deck[cardIndex], 'focus', style), 'low');
       return;
     }
+    stopSpeculation(style);
     const images = deck.map((card) => sceneFor(card, view, style));
     const previous = artworkRequest;
     const request = {first: deck[0], style, mode: view, images, deck};
     artworkRequest = request;
     if (previous && (previous.first !== request.first || previous.style !== style)) {
       const newLesson = previous.first !== request.first;
+      const outdatedPack = gridPacks.get(previous.style);
+      if (outdatedPack && !outdatedPack.finished) discardGridPack(previous.style, outdatedPack, true);
       for (const card of previous.deck) {
         for (const node of cardScenes.get(card).images.values()) {
           if (newLesson || (node.dataset.sceneStyle !== style && !returnPreloads.has(node))) {
@@ -289,6 +416,11 @@
           }
         }
       }
+    } else if (!focused && previous?.mode === 'focus') {
+      // The grid is visible now. Keep nearby single cards warm without competing for every card.
+      previous.images.forEach((node, index) => {
+        if (Math.abs(index - cardIndex) > 1) sceneLoads.get(node)?.cancel();
+      });
     }
     const order = deck.map((_, index) => index);
     const alternate = focused ? 'grid' : 'focus';
@@ -314,40 +446,58 @@
       card.dataset.imageState = 'loading';
     }
 
-    const loadVisible = (index, priority) => loadScene(images[index], priority).then((ready) => {
+    const loadVisible = (index, priority) => loadCardScene(deck[index], images[index], priority).then((ready) => {
       if (artworkRequest !== request) return;
       if (ready) showScene(index);
       else if (deck[index].dataset.imageState) deck[index].dataset.imageState = 'error';
     });
+    request.promote = (index) => loadVisible(index, 'high');
     const warmOther = (index, optional = true) => {
       const node = sceneFor(deck[index], alternate, request.style);
-      if (optional) loadScene(node, 'low');
+      if (optional) loadCardScene(deck[index], node, 'low');
       else {
         // Keep just the selected card warm for returning to single view.
         returnPreloads.add(node);
-        loadScene(node, 'low').then(() => returnPreloads.delete(node));
+        loadCardScene(deck[index], node, 'low').then(() => returnPreloads.delete(node));
       }
     };
 
     order.forEach(showScene);
     const urgent = foregroundOrder.slice(0, focused ? 1 : 2);
     const early = urgent.map((index) => loadVisible(index, 'high'));
-    const remaining = foregroundOrder.slice(urgent.length).map((index) => loadVisible(index, focused ? 'low' : 'auto'));
+    const loadRemaining = () => {
+      if (artworkRequest !== request) return;
+      const rest = foregroundOrder.slice(urgent.length);
+      if (!focused) return Promise.all(rest.map((index) => loadVisible(index, 'auto')));
+      const nearby = rest.slice(0, 2).map((index) => loadVisible(index, 'low'));
+      return Promise.all(nearby).then(() => {
+        if (artworkRequest === request) {
+          return Promise.all(rest.slice(2).map((index) => loadVisible(index, 'low')));
+        }
+      });
+    };
+    const changingStyle = previous?.first === request.first && previous.style !== style;
+    if (focused && !changingStyle) order.forEach((index) => warmOther(index));
+    const remaining = focused ? Promise.all(early).then(loadRemaining) : loadRemaining();
     if (focused) {
-      order.slice(0, 2).forEach((index) => warmOther(index));
       Promise.all(early).then(() => {
-        if (artworkRequest === request) order.slice(2).forEach((index) => warmOther(index));
+        if (changingStyle && artworkRequest === request) order.forEach((index) => warmOther(index));
+      });
+    } else {
+      Promise.all(early).then(() => {
+        if (artworkRequest === request) warmOther(alternateOrder[0], false);
       });
     }
-    Promise.all([...early, ...remaining]).then(() => {
+    Promise.all([...early, remaining]).then(() => {
       if (artworkRequest !== request) return;
-      if (!focused) warmOther(alternateOrder[0], false);
+      request.ready = true;
       // Let the selected style finish rendering before warming offscreen artwork.
       setTimeout(() => {
         if (artworkRequest !== request) return;
         if (!focused) alternateOrder.slice(1, 3).forEach((index) => warmOther(index));
         updateDecorativeArt();
       }, 180);
+      setTimeout(() => prewarmStyles(request), 350);
     });
   }
 
@@ -400,6 +550,10 @@
 
   function chooseLesson(index, start = 0) {
     stop();
+    stopSpeculation();
+    for (const [imageStyle, pack] of gridPacks) discardGridPack(imageStyle, pack);
+    gridPackUrls.forEach((url) => URL.revokeObjectURL(url));
+    gridPackUrls.clear();
     lessonIndex = index;
     const [label, title, english, page, icon, words] = window.lessons[lessonIndex];
     learn.classList.toggle('counting-lesson', icon === 'numbers');
@@ -462,6 +616,9 @@
     visibleArt();
     updateSettings();
     saveSettings();
+  });
+  styleSelect.addEventListener('pointerdown', () => {
+    if (artworkRequest?.ready) prewarmStyles(artworkRequest);
   });
   buttons.forEach((button) => button.addEventListener('click', () => {
     if (button.dataset.accent && button.dataset.accent !== accent) {
