@@ -19,8 +19,23 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const speaker = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>';
   const colors = [['#ffedc1', '#bc760b'], ['#e3edff', '#5169bf'], ['#e9e1ff', '#8750ae'], ['#ffe4ed', '#b65577'], ['#dff2dc', '#448858']];
+  const lessonSettings = {
+    Starter: 'reading-nook',
+    'Unit 1': 'neighborhood',
+    'Unit 2': 'schoolyard',
+    'Unit 3': 'school-desk',
+    'Unit 4': 'classroom',
+    'Unit 5': 'drawing-paper',
+    'Unit 6': 'family-room',
+    'Unit 8': 'hillside',
+    'Unit 9': 'home-activity',
+    'Unit 10': 'counting-mat'
+  };
   const saved = readSettings();
-  let lessonIndex = Number.isInteger(saved.lesson) && window.lessons[saved.lesson] ? saved.lesson : 1;
+  const requestedUnit = new URLSearchParams(window.location.search).get('unit');
+  const requestedLesson = window.lessons.findIndex(([label]) => label === 'Unit ' + requestedUnit);
+  const previousLesson = Number.isInteger(saved.lesson) && window.lessons[saved.lesson] ? saved.lesson : 1;
+  let lessonIndex = requestedLesson >= 0 ? requestedLesson : previousLesson;
   let accent = saved.accent === 'us' ? 'us' : 'uk';
   let style = styles.includes(saved.style) ? saved.style : 'textbook';
   let view = saved.view === 'grid' ? 'grid' : 'focus';
@@ -56,23 +71,25 @@
     return window.flashcardAssets?.[path] || path;
   }
 
-  function image(key, className) {
+  function image(key, className, kind) {
     const node = make('img', className);
     node.alt = '';
     node.decoding = 'async';
     node.dataset.image = key;
-    if (className) {
-      node.loading = 'lazy';
-      applyArt(node);
-    }
+    if (kind) node.dataset.artKind = kind;
     return node;
   }
 
   function applyArt(node) {
-    if (node.dataset.appliedStyle === style) return;
+    const kind = node.dataset.artKind;
+    const appliedStyle = kind === 'context' ? 'shared' : style;
+    if (node.dataset.appliedStyle === appliedStyle) return;
     const key = node.dataset.image || node.dataset.heroArt;
-    node.src = assetUrl('assets/' + style + '/' + key + '.webp');
-    node.dataset.appliedStyle = style;
+    const directory = kind === 'context' ? 'scenes/settings' : kind === 'scene' ? 'scenes/' + style : style;
+    const source = assetUrl('assets/' + directory + '/' + key + '.webp');
+    node.src = source;
+    if (kind === 'scene') node.parentElement.style.setProperty('--scene-fill', 'url("' + source + '")');
+    node.dataset.appliedStyle = appliedStyle;
   }
 
   function clearPlaying() {
@@ -111,16 +128,27 @@
     if (result && result.catch) result.catch(onFailure);
   }
 
-  function renderCard([word, meaning, images], index) {
+  function renderCard([word, meaning, images], index, lessonLabel) {
     const node = make('button', 'card');
     node.type = 'button';
-    const keys = images.split(' ');
-    const art = make('span', keys.length > 1 ? 'card-art duo' : 'card-art');
+    const art = make('span', 'card-art');
     art.setAttribute('aria-hidden', 'true');
     const [tint, spark] = colors[index % colors.length];
     node.style.setProperty('--tint', tint);
     node.style.setProperty('--spark', spark);
-    keys.forEach((key) => art.appendChild(image(key)));
+    if (lessonLabel === 'Unit 7') {
+      art.classList.add('illustrated-scene');
+      art.appendChild(image(word, 'scene-art', 'scene'));
+    } else {
+      const keys = images.split(' ');
+      const context = lessonSettings[lessonLabel];
+      if (context) {
+        art.classList.add('contextual');
+        art.appendChild(image(context, 'card-context', 'context'));
+      }
+      art.classList.toggle('duo', keys.length > 1);
+      keys.forEach((key, i) => art.appendChild(image(key, i === 0 ? 'primary-art' : 'secondary-art')));
+    }
     const copy = make('span', 'card-copy');
     const english = make('span', 'word', word);
     english.lang = 'en';
@@ -158,8 +186,9 @@
       else card.removeAttribute('aria-hidden');
       card.querySelectorAll('img[data-image]').forEach((node) => {
         if (!focused || Math.abs(index - cardIndex) <= 1) applyArt(node);
-        else if (node.dataset.appliedStyle && node.dataset.appliedStyle !== style) {
+        else if (node.dataset.appliedStyle && node.dataset.appliedStyle !== style && node.dataset.artKind !== 'context') {
           node.removeAttribute('src');
+          if (node.dataset.artKind === 'scene') node.parentElement.style.removeProperty('--scene-fill');
           delete node.dataset.appliedStyle;
         }
       });
@@ -228,7 +257,7 @@
       else tab.removeAttribute('aria-current');
     });
     cards.textContent = '';
-    words.forEach((word, i) => cards.appendChild(renderCard(word, i)));
+    words.forEach((word, i) => cards.appendChild(renderCard(word, i, label)));
     renderView();
     saveSettings();
   }
@@ -236,7 +265,10 @@
   window.lessons.forEach(([label, title, , , icon], index) => {
     const button = make('button', 'unit');
     button.type = 'button';
-    button.append(image(icon, 'unit-icon'), make('span', 'unit-name', title), make('span', 'unit-tag', label));
+    const thumbnail = image(icon, 'unit-icon');
+    thumbnail.loading = 'lazy';
+    applyArt(thumbnail);
+    button.append(thumbnail, make('span', 'unit-name', title), make('span', 'unit-tag', label));
     button.addEventListener('click', () => chooseLesson(index));
     tabs.appendChild(button);
     const option = make('option', '', label + ' · ' + title);
@@ -300,5 +332,5 @@
   }
   byId('previous').addEventListener('click', () => move(-1));
   byId('next').addEventListener('click', () => move(1));
-  chooseLesson(lessonIndex, saved.card);
+  chooseLesson(lessonIndex, requestedLesson >= 0 ? 0 : saved.card);
 })();

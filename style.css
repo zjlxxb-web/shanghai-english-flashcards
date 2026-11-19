@@ -90,8 +90,8 @@ h1 span { color: #ebf783; }
 .cards.focus .card:focus-visible { outline-offset: -3px; }
 .cards.focus .card-art { aspect-ratio: 1.59; max-height: 310px; max-height: clamp(180px, 36svh, 310px); }
 .cards.focus .card-art img { width: 72%; height: 94%; }
-.cards.focus .card-art.duo img:first-child { left: 13%; width: 60%; }
-.cards.focus .card-art.duo img:last-child { width: 29%; height: 48%; }
+.cards.focus .card-art.duo .primary-art { left: 11%; width: 62%; }
+.cards.focus .card-art.duo .secondary-art { width: 29%; height: 48%; }
 .cards.focus .card-copy { min-height: 102px; padding: 12px 91px 14px; text-align: center; }
 .cards.focus .word { font-size: clamp(28px, 6.1vw, 46px); }
 .cards.focus .meaning { font-size: 16px; }
@@ -126,9 +126,9 @@ h1 span { color: #ebf783; }
 .card-art { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 1.52; min-height: 103px; overflow: hidden; background: var(--tint); isolation: isolate; }
 .card-art::before { content: ""; position: absolute; z-index: -1; width: 57%; aspect-ratio: 1; border-radius: 45% 55% 52% 48%; transform: rotate(-17deg); background: #ffffff88; }
 .card-art::after { content: "✧"; position: absolute; right: 17%; top: 16%; color: var(--spark); font-size: clamp(17px, 3vw, 30px); }
-.card-art img { width: 53%; height: 80%; object-fit: contain; position: absolute; pointer-events: none; filter: drop-shadow(0 5px 4px #302c4c24); }
-.card-art.duo img:first-child { left: 16%; transform: rotate(-8deg); }
-.card-art.duo img:last-child { bottom: 10%; right: 12%; width: 31%; height: 54%; transform: rotate(10deg); }
+.card-art img { width: 64%; height: 86%; object-fit: contain; position: absolute; pointer-events: none; filter: drop-shadow(0 5px 4px #302c4c24); }
+.card-art.duo .primary-art { left: 11%; transform: rotate(-5deg); }
+.card-art.duo .secondary-art { bottom: 8%; right: 9%; width: 31%; height: 54%; transform: rotate(7deg); }
 [data-art="comic"] .card-art { background: radial-gradient(circle, #31365939 1px, transparent 1.4px) 0 0 / 9px 9px, var(--tint); }
 [data-art="comic"] .card-art::before { width: 75%; border-radius: 0; clip-path: polygon(50% 0%,59% 24%,84% 8%,79% 35%,100% 40%,86% 53%,98% 73%,76% 69%,76% 95%,57% 80%,44% 99%,37% 77%,8% 92%,19% 66%,0 55%,28% 45%,13% 21%,40% 30%); background: #fffaf1; }
 [data-art="comic"] .card-art img { filter: drop-shadow(2px 3px 0 #25325166); }
@@ -151,6 +151,45 @@ h1 span { color: #ebf783; }
 [data-art="pixel"] .card-art::before { border-radius: 5px; transform: none; background: #edf9ee; box-shadow: 5px 5px #58769b35; }
 [data-art="pixel"] .card-art::after { content: "✚"; color: #496297; }
 [data-art="pixel"] .card-art img { image-rendering: pixelated; filter: drop-shadow(3px 3px 0 #30477251); }
+.card-art.contextual img.card-context {
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .48;
+  filter: none;
+  image-rendering: auto;
+}
+[data-art="textbook"] .card-art.contextual img.card-context { opacity: .86; }
+[data-art="textbook"] .card-art.contextual::before {
+  width: 75%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, #fffdf0ed, #fffdf075 61%, #fffdf000 72%);
+}
+.card-art.illustrated-scene { background: #edf1e7; }
+.card-art.illustrated-scene::before {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  background: var(--scene-fill) center / cover;
+  filter: blur(14px);
+  transform: scale(1.1);
+  opacity: .58;
+}
+.card-art.illustrated-scene::after { content: none; }
+.card-art.illustrated-scene img.scene-art {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: none;
+}
 .card-copy { position: relative; width: 100%; min-height: 88px; padding: 13px 50px 12px 13px; }
 .word { display: block; font: 850 clamp(17px, 2.2vw, 24px)/1.16 "Aptos", "Arial Rounded MT Bold", system-ui, sans-serif; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .meaning { display: block; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
