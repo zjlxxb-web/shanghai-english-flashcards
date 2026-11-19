@@ -137,17 +137,6 @@ h1 span { color: #ebf783; }
   min-height: 103px;
   overflow: hidden;
   background: #edf1e7;
-  isolation: isolate;
-}
-.card-art::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background: var(--scene-fill) center / cover;
-  filter: blur(14px);
-  transform: scale(1.1);
-  opacity: .58;
 }
 .scene-art {
   position: absolute;
@@ -327,7 +316,6 @@ footer a { text-underline-offset: 3px; }
     min-height: clamp(165px, 37svh, 270px);
     max-height: none;
   }
-  .card-art::before { display: none; }
   .scene-art { object-fit: cover; }
   /* Counting cards need their full width so every object stays visible. */
   .counting-lesson .cards .card-art { flex: 0 0 auto; aspect-ratio: auto; min-height: 0; }

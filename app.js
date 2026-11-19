@@ -93,7 +93,6 @@
         const standardSource = assetUrl(standardPath);
         node.dataset.appliedPath = standardPath;
         node.src = standardSource;
-        node.parentElement.style.setProperty('--scene-fill', 'url("' + standardSource + '")');
         return;
       }
       node.onerror = null;
@@ -103,11 +102,9 @@
       if (fallbackKey) {
         const fallback = assetUrl('assets/' + style + '/' + fallbackKey + '.webp');
         if (node.src !== fallback) node.src = fallback;
-        if (isScene) node.parentElement.style.setProperty('--scene-fill', 'url("' + fallback + '")');
       }
     };
     node.src = source;
-    if (isScene) node.parentElement.style.setProperty('--scene-fill', 'url("' + source + '")');
     node.dataset.appliedStyle = style;
     node.dataset.appliedPath = sourcePath;
   }
@@ -183,20 +180,28 @@
   }
 
   function visibleArt() {
-    Array.from(cards.children).forEach((card, index) => {
-      const focused = view === 'focus';
+    const focused = view === 'focus';
+    const deck = Array.from(cards.children);
+    const updateArt = (card, index) => {
       const current = index === cardIndex;
       card.tabIndex = !focused || current ? 0 : -1;
       if (focused && !current) card.setAttribute('aria-hidden', 'true');
       else card.removeAttribute('aria-hidden');
-      card.querySelectorAll('img[data-image]').forEach((node) => {
-        if (!focused || Math.abs(index - cardIndex) <= 1) applyArt(node);
-        else if (node.dataset.appliedStyle && node.dataset.appliedStyle !== style) {
-          node.removeAttribute('src');
-          if (node.dataset.artKind === 'scene') node.parentElement.style.removeProperty('--scene-fill');
-          delete node.dataset.appliedStyle;
-        }
-      });
+      const node = card.querySelector('.scene-art');
+      if (!focused || Math.abs(index - cardIndex) <= 1) {
+        node.loading = focused ? 'eager' : 'lazy';
+        node.fetchPriority = focused && current ? 'high' : 'auto';
+        applyArt(node);
+      } else if (node.hasAttribute('src')) {
+        node.onerror = null;
+        node.removeAttribute('src');
+        delete node.dataset.appliedPath;
+      }
+    };
+    // Start the visible single card before preloading its neighbors.
+    if (focused) updateArt(deck[cardIndex], cardIndex);
+    deck.forEach((card, index) => {
+      if (!focused || index !== cardIndex) updateArt(card, index);
     });
   }
 
@@ -320,11 +325,12 @@
       stop();
       accent = button.dataset.accent;
     }
-    if (button.dataset.view) {
+    if (button.dataset.view && button.dataset.view !== view) {
       view = button.dataset.view;
       renderView();
+    } else {
+      updateSettings();
     }
-    updateSettings();
     saveSettings();
   }));
 
@@ -333,9 +339,15 @@
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
       if (view !== 'focus') return;
+      const {scrollLeft} = cards;
       let nearest = 0;
+      let distance = Math.abs(scrollLeft - cardOffset(nearest));
       for (let index = 1; index < cards.children.length; index += 1) {
-        if (Math.abs(cards.scrollLeft - cardOffset(index)) < Math.abs(cards.scrollLeft - cardOffset(nearest))) nearest = index;
+        const nextDistance = Math.abs(scrollLeft - cardOffset(index));
+        if (nextDistance < distance) {
+          nearest = index;
+          distance = nextDistance;
+        }
       }
       setCard(nearest);
     }, 100);
