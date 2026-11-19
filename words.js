@@ -54,3 +54,6 @@ window.lessons = [
     ['four', '四', '4'], ['five', '五', '5'], ['six', '六', '6']
   ]]
 ];
+
+// Generated scene asset paths
+window.sceneAssetPaths = {};
