@@ -34,7 +34,7 @@
   let view = saved.view === 'grid' ? 'grid' : 'focus';
   let cardIndex = 0;
   let scrollTimer;
-  let cardUpgrade;
+  let artworkRequest;
   let hidden = false;
   let activeCard = null;
   let playback = 0;
@@ -78,60 +78,33 @@
     return node;
   }
 
-  function applyArt(node, current = false) {
+  function applyArt(node) {
     const isScene = node.dataset.artKind === 'scene';
     const key = node.dataset.image || node.dataset.heroArt;
     const directory = isScene ? 'scenes/' + style : style;
     const path = 'assets/' + directory + '/' + key + '.webp';
     const standardPath = window.sceneAssetPaths?.[path] || path;
-    const hdPath = isScene && view === 'focus'
+    const cardPath = isScene && view === 'focus'
       ? window.hdSceneAssetPaths?.[path] : null;
-    if (node.dataset.appliedStyle !== style ||
-        (node.dataset.appliedPath !== standardPath && node.dataset.appliedPath !== hdPath)) {
-      node.onerror = () => {
-        node.onerror = null;
-        const fallbackKey = isScene
-          ? window.lessons.flatMap((lesson) => lesson[5]).find((word) => wordKey(word[0]) === key)?.[2].split(' ')[0]
-          : key;
-        if (fallbackKey) node.src = assetUrl('assets/' + style + '/' + fallbackKey + '.webp');
-      };
-      node.src = assetUrl(standardPath);
-      node.dataset.appliedStyle = style;
-      node.dataset.appliedPath = standardPath;
-    }
-    if (current !== true) return;
-    if (cardUpgrade?.node === node && cardUpgrade.path === hdPath) return;
-    cancelCardUpgrade();
-    if (!hdPath || node.dataset.appliedPath === hdPath) return;
-    const upgrade = {node, path: hdPath};
-    cardUpgrade = upgrade;
-    // Give the lightweight image priority, then replace it with a decoded card image.
-    node.decode().catch(() => {}).then(() => {
-      if (cardUpgrade !== upgrade) return;
-      upgrade.timer = setTimeout(async () => {
-        const full = new Image();
-        upgrade.image = full;
-        full.fetchPriority = 'low';
-        full.src = assetUrl(hdPath);
-        try {
-          await full.decode();
-          if (cardUpgrade === upgrade) {
-            node.src = full.src;
-            node.dataset.appliedPath = hdPath;
-          }
-        } catch { /* Keep the preview if the card image is unavailable. */ }
-        finally {
-          if (cardUpgrade === upgrade) cardUpgrade = undefined;
-        }
-      }, 250);
-    });
-  }
-
-  function cancelCardUpgrade() {
-    if (!cardUpgrade) return;
-    clearTimeout(cardUpgrade.timer);
-    cardUpgrade.image?.removeAttribute('src');
-    cardUpgrade = undefined;
+    const sourcePath = cardPath || standardPath;
+    if (node.dataset.appliedStyle === style && node.dataset.appliedPath === sourcePath) return;
+    const imageStyle = style;
+    let triedStandard = !cardPath;
+    node.onerror = () => {
+      if (!triedStandard) {
+        triedStandard = true;
+        node.src = assetUrl(standardPath);
+        return;
+      }
+      node.onerror = null;
+      const fallbackKey = isScene
+        ? window.lessons.flatMap((lesson) => lesson[5]).find((word) => wordKey(word[0]) === key)?.[2].split(' ')[0]
+        : key;
+      if (fallbackKey) node.src = assetUrl('assets/' + imageStyle + '/' + fallbackKey + '.webp');
+    };
+    node.src = assetUrl(sourcePath);
+    node.dataset.appliedStyle = style;
+    node.dataset.appliedPath = sourcePath;
   }
 
   function clearPlaying() {
@@ -196,7 +169,6 @@
   function updateSettings() {
     document.documentElement.dataset.art = style;
     styleSelect.value = style;
-    heroArt.forEach(applyArt);
     buttons.forEach((button) => {
       button.setAttribute('aria-pressed', String(
         button.dataset.accent === accent || button.dataset.view === view
@@ -204,31 +176,80 @@
     });
   }
 
+  function updateDecorativeArt() {
+    heroArt.forEach(applyArt);
+    tabs.querySelectorAll('img[data-image]').forEach(applyArt);
+    lessonOptions.querySelectorAll('img[data-image]').forEach(applyArt);
+    applyArt(currentLessonArt);
+  }
+
   function visibleArt() {
     const focused = view === 'focus';
-    if (!focused) cancelCardUpgrade();
     const deck = Array.from(cards.children);
-    const updateArt = (card, index) => {
+    artworkRequest?.image?.removeAttribute('src');
+    const request = {};
+    artworkRequest = request;
+    const neighbors = [];
+    let currentImage;
+    deck.forEach((card, index) => {
       const current = index === cardIndex;
       card.tabIndex = !focused || current ? 0 : -1;
       if (focused && !current) card.setAttribute('aria-hidden', 'true');
       else card.removeAttribute('aria-hidden');
       const node = card.querySelector('.scene-art');
-      if (!focused || Math.abs(index - cardIndex) <= 1) {
-        node.loading = focused ? 'eager' : 'lazy';
-        node.fetchPriority = focused ? (current ? 'high' : 'low') : 'auto';
-        applyArt(node, focused && current);
+      if (!focused) {
+        node.loading = 'lazy';
+        node.fetchPriority = 'auto';
+        applyArt(node);
+      } else if (current) {
+        node.loading = 'eager';
+        node.fetchPriority = 'high';
+        currentImage = node;
+      } else if (Math.abs(index - cardIndex) === 1) {
+        neighbors.push(node);
+        node.fetchPriority = 'low';
+        // Drop queued work from a previous style before warming the new one.
+        if (node.dataset.appliedStyle !== style) clearImage(node);
       } else if (node.hasAttribute('src')) {
-        node.onerror = null;
-        node.removeAttribute('src');
-        delete node.dataset.appliedPath;
+        clearImage(node);
       }
-    };
-    // Start the visible single card before preloading its neighbors.
-    if (focused) updateArt(deck[cardIndex], cardIndex);
-    deck.forEach((card, index) => {
-      if (!focused || index !== cardIndex) updateArt(card, index);
     });
+    if (!currentImage) {
+      updateDecorativeArt();
+      return;
+    }
+    // Let the card the reader is looking at finish before fetching other artwork.
+    loadCurrentArt(currentImage, request).then(() => {
+      if (artworkRequest !== request) return;
+      for (const node of neighbors) {
+        node.loading = 'eager';
+        applyArt(node);
+      }
+      updateDecorativeArt();
+    });
+  }
+
+  async function loadCurrentArt(node, request) {
+    const path = 'assets/scenes/' + style + '/' + node.dataset.image + '.webp';
+    const cardPath = window.hdSceneAssetPaths?.[path];
+    if (cardPath && node.naturalWidth && node.dataset.appliedStyle !== style) {
+      // Keep the last sharp image visible until the new style can replace it.
+      const preview = new Image();
+      request.image = preview;
+      preview.fetchPriority = 'high';
+      preview.src = assetUrl(cardPath);
+      try { await preview.decode(); } catch { /* Use the normal image fallback below. */ }
+      delete request.image;
+    }
+    if (artworkRequest !== request) return;
+    applyArt(node);
+    try { await node.decode(); } catch { /* A failed card must not block the other artwork. */ }
+  }
+
+  function clearImage(node) {
+    node.onerror = null;
+    node.removeAttribute('src');
+    delete node.dataset.appliedPath;
   }
 
   function updateCardNav() {
@@ -296,7 +317,6 @@
       currentLessonArt.dataset.image = icon;
       delete currentLessonArt.dataset.appliedStyle;
     }
-    applyArt(currentLessonArt);
     for (const list of [tabs, lessonOptions]) {
       Array.from(list.children).forEach((tab, i) => {
         if (i === index) tab.setAttribute('aria-current', 'true');
@@ -314,7 +334,6 @@
     button.type = 'button';
     const thumbnail = image(icon, 'unit-icon');
     thumbnail.loading = 'lazy';
-    applyArt(thumbnail);
     button.append(thumbnail, make('span', 'unit-name', title), make('span', 'unit-tag', label));
     button.addEventListener('click', () => {
       chooseLesson(index);
@@ -338,10 +357,8 @@
     lessonPickerSummary.focus({preventScroll: true});
   });
   styleSelect.addEventListener('change', () => {
+    if (style === styleSelect.value) return;
     style = styleSelect.value;
-    tabs.querySelectorAll('img[data-image]').forEach(applyArt);
-    lessonOptions.querySelectorAll('img[data-image]').forEach(applyArt);
-    applyArt(currentLessonArt);
     visibleArt();
     updateSettings();
     saveSettings();
