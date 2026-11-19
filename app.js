@@ -8,6 +8,7 @@
   const styleSelect = byId('style-select');
   const cards = byId('cards');
   const stage = byId('deck-stage');
+  const learn = stage.closest('.learn');
   const cardNav = byId('card-nav');
   const previousCard = byId('previous-card');
   const nextCard = byId('next-card');
@@ -219,8 +220,10 @@
 
   function renderView() {
     clearTimeout(scrollTimer);
-    stage.classList.toggle('focus-stage', view === 'focus');
-    cards.classList.toggle('focus', view === 'focus');
+    const singleCard = view === 'focus';
+    learn.classList.toggle('single-card', singleCard);
+    stage.classList.toggle('focus-stage', singleCard);
+    cards.classList.toggle('focus', singleCard);
     visibleArt();
     updateCardNav();
     updateSettings();
