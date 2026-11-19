@@ -78,13 +78,24 @@
   }
 
   function applyArt(node) {
-    if (node.dataset.appliedStyle === style) return;
     const isScene = node.dataset.artKind === 'scene';
     const key = node.dataset.image || node.dataset.heroArt;
     const directory = isScene ? 'scenes/' + style : style;
     const path = 'assets/' + directory + '/' + key + '.webp';
-    const source = assetUrl(window.sceneAssetPaths?.[path] || path);
+    const standardPath = window.sceneAssetPaths?.[path] || path;
+    const hdPath = isScene && view === 'focus'
+      ? window.hdSceneAssetPaths?.[path] : null;
+    const sourcePath = hdPath || standardPath;
+    if (node.dataset.appliedStyle === style && node.dataset.appliedPath === sourcePath) return;
+    const source = assetUrl(sourcePath);
     node.onerror = () => {
+      if (hdPath && node.dataset.appliedPath === hdPath) {
+        const standardSource = assetUrl(standardPath);
+        node.dataset.appliedPath = standardPath;
+        node.src = standardSource;
+        node.parentElement.style.setProperty('--scene-fill', 'url("' + standardSource + '")');
+        return;
+      }
       node.onerror = null;
       const fallbackKey = isScene
         ? window.lessons.flatMap((lesson) => lesson[5]).find((word) => wordKey(word[0]) === key)?.[2].split(' ')[0]
@@ -98,6 +109,7 @@
     node.src = source;
     if (isScene) node.parentElement.style.setProperty('--scene-fill', 'url("' + source + '")');
     node.dataset.appliedStyle = style;
+    node.dataset.appliedPath = sourcePath;
   }
 
   function clearPlaying() {
