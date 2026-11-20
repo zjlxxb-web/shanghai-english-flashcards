@@ -227,8 +227,8 @@ footer a { text-underline-offset: 3px; }
   }
   .learn.single-card:not(.counting-lesson) {
     --mobile-header: 55px; /* 46px header, 1px border, and 8px gap. */
-    min-height: min(calc(100vh - var(--mobile-header)), calc(100vw + 350px));
-    min-height: min(calc(100svh - var(--mobile-header)), calc(100vw + 350px));
+    min-height: calc(100vh - var(--mobile-header));
+    min-height: calc(100svh - var(--mobile-header));
     grid-template-rows: auto auto minmax(min-content, 1fr);
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
@@ -311,7 +311,7 @@ footer a { text-underline-offset: 3px; }
   .speaker svg { width: 15px; height: 15px; }
   .meaning { font-size: 12px; }
   .focus-stage {
-    align-self: start;
+    align-self: stretch;
     display: grid;
     grid-template-rows: minmax(min-content, 1fr) auto;
     padding: 0;
@@ -322,17 +322,15 @@ footer a { text-underline-offset: 3px; }
   .cards.focus { border-radius: 19px; box-shadow: 0 5px 14px #22316a15; }
   .cards.focus .card { border-color: #d9def1; border-radius: 19px; }
   .cards.focus .card-art {
-    flex: 0 0 auto;
+    flex: 1 0 auto;
     aspect-ratio: 4 / 3;
     min-height: 0;
-    max-height: 340px;
-    max-height: min(340px, 52svh);
+    max-height: none;
   }
   .scene-art { object-fit: cover; }
   .cards.focus .scene-art { object-fit: contain; }
   /* Counting cards need their full width so every object stays visible. */
   .counting-lesson .cards .card-art { flex: 0 0 auto; aspect-ratio: auto; min-height: 0; }
-  .counting-lesson .cards.focus .card-art { max-height: none; }
   .counting-lesson .scene-art {
     position: static;
     display: block;
@@ -346,6 +344,9 @@ footer a { text-underline-offset: 3px; }
     min-height: 100px;
     min-height: clamp(100px, 17svh, 126px);
     padding: 14px 72px;
+  }
+  .learn:not(.counting-lesson) .cards.focus .card-copy {
+    min-height: clamp(100px, 19svh, 174px);
   }
   .cards.focus .word { font-size: clamp(29px, 9.4vw, 44px); }
   .cards.focus .meaning { font-size: 18px; margin-top: 4px; }
