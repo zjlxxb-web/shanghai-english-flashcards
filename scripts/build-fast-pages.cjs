@@ -14,7 +14,9 @@ const dataUrl = (bytes) => 'data:image/webp;base64,' + bytes.toString('base64');
 const inlineScript = (code) => '<script>\n' + code.replace(/<\/script/gi, '<\\/script') + '\n</script>';
 
 async function build() {
-  const [html, css, words, app] = await Promise.all(['index.html', 'style.css', 'words.js', 'app.js'].map(read));
+  const [html, css, words, app, trace] = await Promise.all(
+    ['index.html', 'style.css', 'words.js', 'app.js', 'fast/trace.js'].map(read)
+  );
   const {window} = vm.runInNewContext(words + '\n;({window})', {window: {}});
   const keys = [...new Set(window.lessons.flatMap((lesson) => lesson[5].map(([word]) => wordKey(word))))];
   const icons = [...new Set([
@@ -51,7 +53,8 @@ async function build() {
       .replace(/\s*<script src="words\.js[^>]*><\/script>\s*<script src="app\.js[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/, '')
       .replace('<body>', '<body class="fast-loading">')
       .replace('<main class="wrap">', '<p id="fast-loading" class="wrap" role="status">正在一次下载此风格的全部卡图。完成后可直接切换单元和视图。</p>\n  <main class="wrap">')
-      .replace(/<script id="navigation-preview-data"[\s\S]*?<\/script>/, (preview) => preview + '\n  ' + boot)
+      .replace(/<script id="navigation-preview-data"[\s\S]*?<\/script>/, (preview) => preview + '\n  ' + boot);
+    const withOptionalTrace = result
       .replace('</body>', `<script>
   if (new URLSearchParams(location.search).has('trace')) {
     const script = document.createElement('script');
@@ -63,8 +66,14 @@ async function build() {
     if (result.includes('src="app.js') || !result.includes('id="navigation-preview-data"') || !result.includes('window.flashcardAssets =')) {
       throw new Error(`Could not generate the single-file version for ${theme}`);
     }
-    await fs.writeFile(path.join(destination, theme + '.html'), result);
-    console.log(`${theme}: ${keys.length * 2} card images, ${gzipSync(result).length} bytes when compressed`);
+    await fs.writeFile(path.join(destination, theme + '.html'), withOptionalTrace);
+    if (theme === 'pig') {
+      const diagnostic = result
+        .replace('</title>', '（真机诊断）</title>')
+        .replace('</body>', () => inlineScript(trace) + '\n</body>');
+      await fs.writeFile(path.join(destination, 'diagnose.html'), diagnostic);
+    }
+    console.log(`${theme}: ${keys.length * 2} card images, ${gzipSync(withOptionalTrace).length} bytes when compressed`);
   }
 }
 
