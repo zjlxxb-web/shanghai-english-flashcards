@@ -147,7 +147,7 @@ h1 span { color: #ebf783; }
   object-fit: contain;
   pointer-events: none;
 }
-.cards .card[data-image-state] .card-art::after {
+.cards .card[data-image-state]:not([data-image-state="switching"]) .card-art::after {
   position: absolute;
   inset: 0;
   display: grid;
@@ -156,10 +156,23 @@ h1 span { color: #ebf783; }
   font-size: 14px;
   content: "正在加载图片…";
 }
-.cards .card[data-image-state] .scene-art { visibility: hidden; }
-.counting-lesson .cards.focus .card[data-image-state] .card-art { min-height: 140px; }
+.cards .card[data-image-state]:not([data-image-state="switching"]) .scene-art { visibility: hidden; }
+.cards.focus .card[data-image-state="switching"] .card-art::after {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  border-radius: 9px;
+  color: var(--muted);
+  background: #fffffff0;
+  font-size: 12px;
+  content: "正在切换图片…";
+  animation: show-image-switch 150ms step-end both;
+}
+@keyframes show-image-switch { from { opacity: 0; } to { opacity: 1; } }
+.counting-lesson .cards.focus .card[data-image-state]:not([data-image-state="switching"]) .card-art { min-height: 140px; }
 .cards .card[data-image-state="error"] .card-art::after { content: "图片暂未加载"; }
-[data-art="pixel"] .scene-art { image-rendering: pixelated; }
+.scene-art[data-scene-style="pixel"] { image-rendering: pixelated; }
 .card-copy { position: relative; width: 100%; min-height: 88px; padding: 13px 50px 12px 13px; }
 .word { display: block; font: 850 clamp(17px, 2.2vw, 24px)/1.16 "Aptos", "Arial Rounded MT Bold", system-ui, sans-serif; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .meaning { display: block; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }

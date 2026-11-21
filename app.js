@@ -370,14 +370,16 @@
     speculativeStyle = undefined;
   }
 
-  function releaseFocusedStyles() {
+  function releaseFocusedStyles(keepDecoded = false) {
     if (!focusedStyleWarm) return;
     const {card, images} = focusedStyleWarm;
     const used = cardScenes.get(card).images;
     for (const [imageStyle, node] of images) {
+      if (keepDecoded && decodedScenes.has(node)) continue;
       if (used.get('focus:' + imageStyle) !== node) sceneLoads.get(node)?.cancel();
+      images.delete(imageStyle);
     }
-    focusedStyleWarm = undefined;
+    if (!keepDecoded) focusedStyleWarm = undefined;
   }
 
   function prewarmFocusedStyles(request) {
@@ -452,7 +454,7 @@
       return;
     }
     stopSpeculation(focused ? undefined : style);
-    if (!focused) releaseFocusedStyles();
+    if (!focused) releaseFocusedStyles(true);
     if (focusedStyleWarm?.card === deck[cardIndex]) {
       for (const [imageStyle, node] of focusedStyleWarm.images) {
         if (imageStyle !== style && !decodedScenes.has(node)) sceneLoads.get(node)?.cancel();
@@ -496,9 +498,9 @@
         return;
       }
       const displayed = art.firstElementChild;
-      // Single cards must never show a picture from an earlier style or grid state.
-      if (!focused && displayed?.naturalWidth) {
-        delete card.dataset.imageState;
+      // Keep this word's decoded illustration visible while its replacement loads.
+      if (displayed !== next && decodedScenes.has(displayed) && card.dataset.imageState !== 'error') {
+        card.dataset.imageState = 'switching';
         return;
       }
       if (art.firstElementChild !== next) art.replaceChildren(next);
