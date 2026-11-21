@@ -74,9 +74,9 @@
   function assetUrl(path) {
     const embedded = window.flashcardAssets?.[path];
     if (embedded) return embedded;
-    if (/^assets\/scenes-card-(?:lite|webp)\/cute\//.test(path) ||
-        /^assets\/(?:scenes|scenes-card(?:-lite|-webp)?)\/pig\/face\.(?:avif|webp)$/.test(path) ||
-        /^assets\/scenes-grid-packs\/pig\/5\.(?:avif|webp)\.bin$/.test(path)) return path + '?v=5';
+    if (/^assets\/(?:scenes|scenes-card(?:-lite|-webp)?)\/pig\/face\.(?:avif|webp)$/.test(path) ||
+        /^assets\/scenes-grid-packs\/pig\/5\.(?:avif|webp)\.bin$/.test(path)) return path + '?v=6';
+    if (/^assets\/scenes-card-(?:lite|webp)\/cute\//.test(path)) return path + '?v=5';
     const revised = /^assets\/scenes-card(?:-lite|-webp)\//.test(path) || path.startsWith('assets/scenes-card/cute/') ||
       /^assets\/scenes-card(?:-lite|-webp)?\/pig\//.test(path);
     return revised ? path + '?v=4' : path;
