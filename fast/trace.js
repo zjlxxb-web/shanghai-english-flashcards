@@ -3,25 +3,26 @@
 
   const cards = document.getElementById('cards');
   const style = document.getElementById('style-select');
-  const panel = document.createElement('div');
-  const result = document.createElement('textarea');
-  const copy = document.createElement('button');
-  const label = document.createElement('span');
+  const panel = document.getElementById('trace-panel') || document.createElement('div');
+  const result = document.getElementById('trace-result') || document.createElement('textarea');
+  const copy = document.getElementById('trace-copy') || document.createElement('button');
+  const label = document.getElementById('trace-status') || document.createElement('span');
   const entries = [];
   let current;
   let frame;
 
-  panel.style.cssText = 'position:fixed;z-index:9999;bottom:12px;bottom:calc(12px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);white-space:nowrap;padding:5px;background:white;color:#171717;border:1px solid #333;border-radius:8px;font:13px sans-serif';
-  result.style.cssText = 'width:min(82vw,420px);height:9em';
-  result.hidden = true;
-  result.readOnly = true;
-  result.setAttribute('aria-label', '闪卡诊断记录');
-  copy.type = 'button';
-  copy.textContent = '复制诊断';
-  copy.style.cssText = 'min-height:36px;padding:4px 10px;background:#253778;color:white;border:0;border-radius:6px;font:700 14px sans-serif';
-  label.textContent = '请照常操作 ';
-  panel.append(label, copy, result);
-  document.body.append(panel);
+  if (!panel.isConnected) {
+    panel.style.cssText = 'position:fixed;z-index:9999;bottom:12px;bottom:calc(12px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);white-space:nowrap;padding:5px;background:white;color:#171717;border:1px solid #333;border-radius:8px;font:13px sans-serif';
+    result.style.cssText = 'width:min(82vw,420px);height:9em';
+    result.hidden = true;
+    result.readOnly = true;
+    result.setAttribute('aria-label', '闪卡诊断记录');
+    copy.type = 'button';
+    copy.textContent = '复制诊断';
+    copy.style.cssText = 'min-height:36px;padding:4px 10px;background:#253778;color:white;border:0;border-radius:6px;font:700 14px sans-serif';
+    panel.append(label, copy, result);
+    document.body.append(panel);
+  }
 
   function snapshot() {
     const focus = cards.classList.contains('focus');
@@ -153,4 +154,6 @@
       label.textContent = '请长按复制 ';
     }
   });
+  label.textContent = '可以开始操作';
+  copy.disabled = false;
 })();

@@ -70,6 +70,13 @@ async function build() {
     if (theme === 'pig') {
       const diagnostic = result
         .replace('</title>', '（真机诊断）</title>')
+        .replace('<body class="fast-loading">', `<body class="fast-loading">
+  <section id="trace-panel" aria-label="闪卡真机诊断" style="position:sticky;top:0;z-index:9999;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 12px;background:#fff3bc;border-bottom:2px solid #253778;color:#171717">
+    <strong>闪卡真机诊断</strong>
+    <span id="trace-status" role="status">诊断启动中</span>
+    <button id="trace-copy" type="button" disabled style="min-height:36px;padding:4px 10px;background:#253778;color:white;border:0;border-radius:6px;font:700 14px sans-serif">复制诊断</button>
+    <textarea id="trace-result" aria-label="闪卡诊断记录" rows="7" readonly hidden style="flex-basis:100%"></textarea>
+  </section>`)
         .replace('</body>', () => inlineScript(trace) + '\n</body>');
       await fs.writeFile(path.join(destination, 'diagnose.html'), diagnostic);
     }
