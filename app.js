@@ -76,7 +76,7 @@
     if (embedded) return embedded;
     const revised = /^assets\/scenes-card(?:-lite|-webp)\//.test(path) || path.startsWith('assets/scenes-card/cute/') ||
       /^assets\/scenes-card(?:-lite|-webp)?\/pig\//.test(path);
-    return revised ? path + '?v=3' : path;
+    return revised ? path + '?v=4' : path;
   }
 
   function wordKey(word) {
