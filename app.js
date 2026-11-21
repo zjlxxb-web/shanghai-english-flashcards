@@ -35,15 +35,16 @@
   let cardIndex = 0;
   let artworkRequest;
   let scrollTimer;
+  let focusWasScrolled = false;
   let compactCards = false;
   const cardScenes = new WeakMap();
   const sceneLoads = new WeakMap();
   const decodedScenes = new WeakSet();
   const returnPreloads = new WeakSet();
-  const gridPacks = new Map();
-  const gridPackUrls = new Set();
+  const lessonArtwork = new Map();
   const warmUrls = new Set();
   let speculativeStyle;
+  let navigationIntent;
   let focusedStyleWarm;
   let hidden = false;
   let activeCard = null;
@@ -310,6 +311,11 @@
     return request.promise;
   }
 
+  function watchGridPackProgress(pack) {
+    clearTimeout(pack.stallTimer);
+    pack.stallTimer = setTimeout(() => pack.controller.abort(), 2500);
+  }
+
   async function readGridPack(response, pack) {
     const stream = response.body?.getReader?.();
     let chunk = stream ? new Uint8Array() : new Uint8Array(await response.arrayBuffer());
@@ -320,6 +326,7 @@
           const next = stream && await stream.read();
           if (!next || next.done) throw new Error('Incomplete artwork pack');
           chunk = next.value;
+          watchGridPackProgress(pack);
         }
         const count = Math.min(size - offset, chunk.length);
         bytes.set(chunk.subarray(0, count), offset);
@@ -342,7 +349,7 @@
         if (pack.controller.signal.aborted) return;
         const url = URL.createObjectURL(new Blob([bytes], {type: 'image/' + pack.format}));
         pack.urls.push(url);
-        gridPackUrls.add(url);
+        pack.lesson.urls.add(url);
         pack.resolve[index](url);
       }
       if (stream) await stream.read();
@@ -351,49 +358,58 @@
     }
   }
 
-  function gridPackFor(imageStyle, priority) {
+  function gridPackFor(lesson, imageStyle, priority) {
     if (window.flashcardAssets || !window.fetch || !window.AbortController || !window.TextDecoder || !URL.createObjectURL) return;
-    const active = imageStyle === style;
-    const existing = gridPacks.get(imageStyle);
+    const active = lesson.index === lessonIndex && imageStyle === style;
+    const existing = lesson.packs.get(imageStyle);
     if (existing) {
       if (active) existing.active = true;
       return existing;
     }
-    const pack = {format: compactCards ? 'avif' : 'webp', active, controller: new AbortController(), urls: [], resolve: []};
-    pack.words = Array.from(cards.children, (card) => cardScenes.get(card).word);
+    const pack = {lesson, imageStyle, format: compactCards ? 'avif' : 'webp', active, controller: new AbortController(), urls: [], resolve: []};
+    pack.words = lesson.deck.map((card) => cardScenes.get(card).word);
     pack.images = pack.words.map(() => new Promise((resolve) => pack.resolve.push(resolve)));
-    gridPacks.set(imageStyle, pack);
-    const path = 'assets/scenes-grid-packs/' + imageStyle + '/' + lessonIndex + '.' + pack.format + '.bin';
+    lesson.packs.set(imageStyle, pack);
+    const path = 'assets/scenes-grid-packs/' + imageStyle + '/' + lesson.index + '.' + pack.format + '.bin';
+    watchGridPackProgress(pack);
     pack.done = fetch(assetUrl(path), {priority, signal: pack.controller.signal})
-      .then((response) => response.ok ? readGridPack(response, pack) : undefined)
-      .catch(() => {})
+      .then(async (response) => {
+        if (!response.ok) return false;
+        await readGridPack(response, pack);
+        return !pack.controller.signal.aborted;
+      })
+      .catch(() => false)
+      .then((complete) => {
+        if (!complete && lesson.packs.get(imageStyle) === pack) lesson.packs.delete(imageStyle);
+      })
       .finally(() => {
+        clearTimeout(pack.stallTimer);
         pack.finished = true;
         pack.resolve.forEach((resolve) => resolve(null));
       });
     return pack;
   }
 
-  function discardGridPack(imageStyle, pack, keepUrls = false) {
-    gridPacks.delete(imageStyle);
+  function discardGridPack(pack, keepUrls = false) {
+    if (pack.lesson.packs.get(pack.imageStyle) === pack) pack.lesson.packs.delete(pack.imageStyle);
     pack.controller.abort();
     if (!keepUrls) pack.urls.forEach((url) => {
       URL.revokeObjectURL(url);
-      gridPackUrls.delete(url);
+      pack.lesson.urls.delete(url);
     });
   }
 
-  function loadCardScene(card, node, priority) {
+  function loadCardScene(lesson, card, node, priority) {
     const packedImage = node.dataset.sceneView === 'grid' && !sceneLoads.has(node)
-      ? gridPackFor(node.dataset.sceneStyle, priority)?.images[cardScenes.get(card).index] : null;
+      ? gridPackFor(lesson, node.dataset.sceneStyle, priority)?.images[cardScenes.get(card).index] : null;
     return loadScene(node, priority, packedImage);
   }
 
   function stopSpeculation(nextStyle) {
     if (!speculativeStyle || speculativeStyle.style === nextStyle) return;
     speculativeStyle.controller.abort();
-    const {style: imageStyle, pack} = speculativeStyle;
-    if (pack && !pack.active && !pack.finished) discardGridPack(imageStyle, pack);
+    const {pack} = speculativeStyle;
+    if (pack && !pack.active && !pack.finished) discardGridPack(pack);
     speculativeStyle = undefined;
   }
 
@@ -450,7 +466,7 @@
       const {word} = cardScenes.get(request.deck[cardIndex]);
       const [single] = cardAssetPaths('assets/scenes/' + imageStyle + '/' + word + '.webp');
       const url = single && assetUrl(single);
-      const pack = gridPackFor(imageStyle, 'low');
+      const pack = gridPackFor(request.lesson, imageStyle, 'low');
       const controller = new AbortController();
       const job = {style: imageStyle, pack, controller};
       speculativeStyle = job;
@@ -463,6 +479,81 @@
       await Promise.all([pack?.done, warm]);
       if (speculativeStyle === job) speculativeStyle = undefined;
     }
+  }
+
+  function stopLessonDownloads(lesson) {
+    for (const pack of lesson.packs.values()) {
+      if (!pack.finished) discardGridPack(pack, true);
+    }
+    for (const card of lesson.deck) {
+      for (const node of cardScenes.get(card).images.values()) sceneLoads.get(node)?.cancel();
+    }
+  }
+
+  function getLessonArtwork(index) {
+    if (lessonArtwork.has(index)) return lessonArtwork.get(index);
+    const lesson = {index, deck: window.lessons[index][5].map(renderCard), packs: new Map(), urls: new Set()};
+    lessonArtwork.set(index, lesson);
+    // Keep the visible unit and the three most recent or prepared units.
+    if (lessonArtwork.size > 4) {
+      const oldest = [...lessonArtwork.values()].find((entry) => entry.index !== lessonIndex);
+      stopLessonDownloads(oldest);
+      oldest.urls.forEach((url) => URL.revokeObjectURL(url));
+      lessonArtwork.delete(oldest.index);
+    }
+    return lesson;
+  }
+
+  function prewarmView(index, mode, selected = 0) {
+    if (window.flashcardAssets || navigator.connection?.saveData || !navigator.onLine || !window.lessons[index]) return;
+    const lesson = getLessonArtwork(index);
+    if (mode === 'grid') {
+      const imageStyle = style;
+      const pack = gridPackFor(lesson, imageStyle, 'low');
+      if (!pack) return;
+      return Promise.all(pack.images.map((image, position) => image.then((url) => {
+        if (!url || pack.controller.signal.aborted || style !== imageStyle) return;
+        const node = sceneFor(lesson.deck[position], 'grid', imageStyle);
+        return loadScene(node, 'low', Promise.resolve(url));
+      })));
+    }
+    const card = lesson.deck[selected];
+    return loadScene(sceneFor(card, 'focus', style), 'low');
+  }
+
+  function prewarmNavigation(request) {
+    if (request.navigationWarm || window.flashcardAssets || navigator.connection?.saveData) return request.navigationWarm;
+    // The visible art is ready. Prepare the other view and the adjacent units in the current view.
+    const {index} = request.lesson;
+    const otherView = request.mode === 'focus' ? 'grid' : 'focus';
+    const warm = async () => {
+      await prewarmView(index, otherView, cardIndex);
+      for (const target of [index + 1, index - 1]) {
+        if (artworkRequest !== request) return;
+        await prewarmView(target, request.mode);
+      }
+    };
+    request.navigationWarm = warm();
+    return request.navigationWarm;
+  }
+
+  function prepareNavigationOnIntent(button, index, mode) {
+    const warm = () => {
+      const targetIndex = index ?? lessonIndex;
+      const targetMode = mode ?? view;
+      if (targetIndex !== lessonIndex || targetMode !== view) {
+        prewarmView(targetIndex, targetMode, index === undefined ? cardIndex : 0);
+      }
+    };
+    const prepare = (delay) => {
+      clearTimeout(navigationIntent);
+      if (delay) navigationIntent = setTimeout(warm, delay);
+      else warm();
+    };
+    button.addEventListener('pointerenter', () => prepare(90));
+    button.addEventListener('pointerleave', () => clearTimeout(navigationIntent));
+    button.addEventListener('focus', () => prepare(90));
+    button.addEventListener('pointerdown', () => prepare(0));
   }
 
   function visibleArt() {
@@ -489,12 +580,12 @@
     }
     const images = deck.map((card) => sceneFor(card, view, style));
     const previous = artworkRequest;
-    const request = {first: deck[0], style, mode: view, images, deck};
+    const request = {first: deck[0], style, mode: view, images, deck, lesson: getLessonArtwork(lessonIndex)};
     artworkRequest = request;
     if (previous && (previous.first !== request.first || previous.style !== style)) {
       const newLesson = previous.first !== request.first;
-      const outdatedPack = gridPacks.get(previous.style);
-      if (outdatedPack && !outdatedPack.finished) discardGridPack(previous.style, outdatedPack, true);
+      const outdatedPack = previous.lesson.packs.get(previous.style);
+      if (outdatedPack && !outdatedPack.finished) discardGridPack(outdatedPack, true);
       for (const card of previous.deck) {
         for (const node of cardScenes.get(card).images.values()) {
           if (newLesson || (node.dataset.sceneStyle !== style && !returnPreloads.has(node))) {
@@ -503,8 +594,6 @@
         }
       }
     } else if (focused && previous?.mode === 'grid') {
-      const pack = gridPacks.get(style);
-      if (pack && !pack.finished) discardGridPack(style, pack, true);
       previous.images.forEach((node) => sceneLoads.get(node)?.cancel());
     } else if (!focused && previous?.mode === 'focus') {
       // The grid is visible now. Keep nearby single cards warm without competing for every card.
@@ -539,7 +628,7 @@
       card.dataset.imageState = 'loading';
     }
 
-    const loadVisible = (index, priority) => loadCardScene(deck[index], images[index], priority).then((ready) => {
+    const loadVisible = (index, priority) => loadCardScene(request.lesson, deck[index], images[index], priority).then((ready) => {
       if (artworkRequest !== request) return;
       if (ready) showScene(index);
       else if (deck[index].dataset.imageState) deck[index].dataset.imageState = 'error';
@@ -554,7 +643,9 @@
             if (artworkRequest === request) updateDecorativeArt();
           }, 180);
         }
-        prewarmFocusedStyles(request);
+        Promise.resolve(prewarmNavigation(request)).then(() => {
+          if (cardIndex === index) prewarmFocusedStyles(request);
+        });
         // Keep nearby cards ready for swipes. Grid packs are loaded in grid view.
         if (navigator.connection?.saveData) return;
         setTimeout(() => {
@@ -570,28 +661,28 @@
     const nearSelection = [...order].sort((a, b) => Math.abs(a - cardIndex) - Math.abs(b - cardIndex));
     const warmFocusCard = (index, keepOnStyleChange = false) => {
       const node = sceneFor(deck[index], 'focus', request.style);
-      if (!keepOnStyleChange) loadCardScene(deck[index], node, 'low');
+      if (!keepOnStyleChange) loadScene(node, 'low');
       else {
         // Keep just the selected card warm for returning to single view.
         returnPreloads.add(node);
-        loadCardScene(deck[index], node, 'low').then(() => returnPreloads.delete(node));
+        loadScene(node, 'low').then(() => returnPreloads.delete(node));
       }
     };
     const early = order.slice(0, 2).map((index) => loadVisible(index, 'high'));
     const remaining = order.slice(2).map((index) => loadVisible(index, 'auto'));
-    Promise.all(early).then(() => {
+    early[0].then(() => {
       if (artworkRequest === request) warmFocusCard(cardIndex, true);
     });
     Promise.all([...early, ...remaining]).then(() => {
       if (artworkRequest !== request) return;
       request.ready = true;
+      prewarmNavigation(request);
       // Let the selected style finish rendering before warming offscreen artwork.
       setTimeout(() => {
         if (artworkRequest !== request) return;
         nearSelection.slice(1, 3).forEach((index) => warmFocusCard(index));
         updateDecorativeArt();
       }, 180);
-      setTimeout(() => prewarmGridStyles(request), 350);
     });
   }
 
@@ -634,6 +725,9 @@
   function renderView() {
     clearTimeout(scrollTimer);
     const singleCard = view === 'focus';
+    const wasSingleCard = cards.classList.contains('focus');
+    if (!singleCard && wasSingleCard) focusWasScrolled = cards.scrollLeft !== 0;
+    const needsAlignment = singleCard && (cardIndex !== 0 || wasSingleCard || focusWasScrolled);
     learn.classList.toggle('single-card', singleCard);
     stage.classList.toggle('focus-stage', singleCard);
     cards.classList.toggle('focus', singleCard);
@@ -641,17 +735,21 @@
     visibleArt();
     updateCardNav();
     updateSettings();
-    alignCard();
+    if (needsAlignment) alignCard();
   }
 
   function chooseLesson(index, start = 0) {
     stop();
     releaseFocusedStyles();
     stopSpeculation();
-    for (const [imageStyle, pack] of gridPacks) discardGridPack(imageStyle, pack);
-    gridPackUrls.forEach((url) => URL.revokeObjectURL(url));
-    gridPackUrls.clear();
+    clearTimeout(navigationIntent);
+    for (const lesson of lessonArtwork.values()) {
+      if (lesson.index !== index) stopLessonDownloads(lesson);
+    }
     lessonIndex = index;
+    const artwork = getLessonArtwork(index);
+    lessonArtwork.delete(index);
+    lessonArtwork.set(index, artwork);
     const [label, title, english, page, icon, words] = window.lessons[lessonIndex];
     learn.classList.toggle('counting-lesson', icon === 'numbers');
     cardIndex = Number.isInteger(start) && words[start] ? start : 0;
@@ -674,8 +772,7 @@
         else tab.removeAttribute('aria-current');
       });
     }
-    cards.textContent = '';
-    words.forEach((word, i) => cards.appendChild(renderCard(word, i)));
+    if (cards.firstElementChild !== artwork.deck[0]) cards.replaceChildren(...artwork.deck);
     renderView();
     saveSettings();
   }
@@ -686,6 +783,7 @@
     const thumbnail = image(icon, 'unit-icon');
     thumbnail.loading = 'lazy';
     button.append(thumbnail, make('span', 'unit-name', title), make('span', 'unit-tag', label));
+    prepareNavigationOnIntent(button, index);
     button.addEventListener('click', () => {
       chooseLesson(index);
       if (mobile) lessonPickerSummary.focus({preventScroll: true});
@@ -719,6 +817,9 @@
       if (view === 'focus') prewarmFocusedStyles(artworkRequest);
       else prewarmGridStyles(artworkRequest);
     }
+  });
+  buttons.filter((button) => button.dataset.view).forEach((button) => {
+    prepareNavigationOnIntent(button, undefined, button.dataset.view);
   });
   buttons.forEach((button) => button.addEventListener('click', () => {
     if (button.dataset.accent && button.dataset.accent !== accent) {
