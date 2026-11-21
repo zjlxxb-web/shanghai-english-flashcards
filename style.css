@@ -99,7 +99,7 @@ h1 span { color: #ebf783; }
 .cards.focus .card { flex: 0 0 100%; scroll-snap-align: center; scroll-snap-stop: always; border-color: #c2cae6; }
 .cards.focus .card:focus-visible { outline-offset: -3px; }
 .cards.focus .card-art { aspect-ratio: 1.59; max-height: 310px; max-height: clamp(180px, 36svh, 310px); }
-.cards.focus .card.portrait-art .card-art { flex: 0 0 auto; aspect-ratio: 3 / 4; max-height: none; }
+.cards.focus .card.portrait-art .card-art, .cards.focus.portrait-cards .card-art { flex: 0 0 auto; aspect-ratio: 3 / 4; max-height: none; }
 .cards.focus .card-copy { min-height: 102px; padding: 12px 91px 14px; text-align: center; }
 .cards.focus .word { font-size: clamp(28px, 6.1vw, 46px); }
 .cards.focus .meaning { font-size: 16px; }
@@ -345,9 +345,9 @@ footer a { text-underline-offset: 3px; }
   .scene-art { object-fit: cover; }
   .cards.focus .scene-art { object-fit: contain; }
   /* Counting cards need their full width so every object stays visible. */
-  .counting-lesson .cards .card-art { flex: 0 0 auto; aspect-ratio: auto; min-height: 0; }
-  .counting-lesson .cards.focus .card.portrait-art .card-art { aspect-ratio: auto; }
-  .counting-lesson .scene-art {
+  .counting-lesson .cards:not(.portrait-cards) .card-art { flex: 0 0 auto; aspect-ratio: auto; min-height: 0; }
+  .counting-lesson .cards.focus:not(.portrait-cards) .card.portrait-art .card-art { aspect-ratio: auto; }
+  .counting-lesson .cards:not(.portrait-cards) .scene-art {
     position: static;
     display: block;
     height: auto;

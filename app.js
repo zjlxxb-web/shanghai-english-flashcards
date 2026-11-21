@@ -100,9 +100,13 @@
     if (!webp) return [];
     if (window.flashcardAssets) return [webp];
     const lighterWebp = webp.replace('scenes-card/', 'scenes-card-webp/');
-    if (!compactCards) return [lighterWebp, webp];
+    if (!compactCards) return [lighterWebp];
     const avif = webp.replace('scenes-card/', 'scenes-card-lite/').replace(/\.webp$/, '.avif');
-    return [avif, lighterWebp, webp];
+    return [avif, lighterWebp];
+  }
+
+  function usesPortraitArt(node) {
+    return node?.dataset.sceneView === 'focus' && !window.flashcardAssets;
   }
 
   function applyArt(node, onFailure, packedSource) {
@@ -114,14 +118,30 @@
     const standardPath = window.sceneAssetPaths?.[path] || path;
     const sources = isScene && node.dataset.sceneView === 'focus' ? cardAssetPaths(path) : [];
     if (packedSource) sources.unshift(packedSource);
-    sources.push(standardPath);
+    const portraitOnly = usesPortraitArt(node);
+    if (!portraitOnly) sources.push(standardPath);
     const sourcePath = sources[0];
+    if (!sourcePath) {
+      onFailure?.();
+      return;
+    }
     if (node.dataset.appliedStyle === imageStyle && node.dataset.appliedPath === sourcePath) return;
     let attempt = 0;
     node.onerror = () => {
       const fallback = sources[++attempt];
       if (fallback) {
         node.src = assetUrl(fallback);
+        return;
+      }
+      if (portraitOnly) {
+        if (attempt === sources.length) {
+          // A separate cache key lets the portrait recover from a stale or failed response.
+          const url = assetUrl(sources[sources.length - 1]);
+          node.src = url + (url.includes('?') ? '&' : '?') + 'retry=1';
+          return;
+        }
+        node.onerror = null;
+        onFailure?.();
         return;
       }
       const fallbackKey = isScene
@@ -197,6 +217,7 @@
     node.addEventListener('click', () => {
       if (view === 'focus' && Math.abs(cards.scrollLeft - cardOffset(index)) > 8) return;
       setCard(index);
+      if (view === 'focus' && node.dataset.imageState === 'error') artworkRequest?.promote(index);
       speak(node, word);
     });
     return node;
@@ -264,6 +285,12 @@
       };
       const ready = async () => {
         try { await node.decode(); } catch { /* A loaded image can still be displayed. */ }
+        if (settled) return;
+        if (node.naturalWidth && usesPortraitArt(node) && node.naturalWidth * 4 !== node.naturalHeight * 3) {
+          node.addEventListener('load', ready, {once: true});
+          node.onerror();
+          return;
+        }
         finish(node.naturalWidth > 0);
       };
       request.cancel = () => {
@@ -489,7 +516,7 @@
 
     function showScene(index) {
       const card = deck[index];
-      const {art} = cardScenes.get(card);
+      const {art, images: cached} = cardScenes.get(card);
       const next = images[index];
       if (decodedScenes.has(next)) {
         card.classList.toggle('portrait-art', next.naturalHeight > next.naturalWidth);
@@ -498,8 +525,13 @@
         return;
       }
       const displayed = art.firstElementChild;
+      let retained = displayed;
+      if (displayed && usesPortraitArt(next) && !usesPortraitArt(displayed)) {
+        retained = [...cached.values()].reverse().find((node) => usesPortraitArt(node) && decodedScenes.has(node));
+      }
       // Keep this word's decoded illustration visible while its replacement loads.
-      if (displayed !== next && decodedScenes.has(displayed) && card.dataset.imageState !== 'error') {
+      if (retained !== next && decodedScenes.has(retained) && card.dataset.imageState !== 'error') {
+        if (displayed !== retained) art.replaceChildren(retained);
         card.dataset.imageState = 'switching';
         return;
       }
@@ -605,6 +637,7 @@
     learn.classList.toggle('single-card', singleCard);
     stage.classList.toggle('focus-stage', singleCard);
     cards.classList.toggle('focus', singleCard);
+    cards.classList.toggle('portrait-cards', singleCard && !window.flashcardAssets);
     visibleArt();
     updateCardNav();
     updateSettings();
@@ -732,6 +765,11 @@
     moveCard(event.key === 'ArrowRight' ? 1 : -1);
   });
   window.addEventListener('resize', () => alignCard());
+  window.addEventListener('online', () => {
+    if (view === 'focus' && cards.children[cardIndex]?.dataset.imageState === 'error') {
+      artworkRequest?.promote(cardIndex);
+    }
+  });
 
   const recall = byId('recall');
   recall.addEventListener('click', () => {
