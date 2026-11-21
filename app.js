@@ -74,9 +74,9 @@
   function assetUrl(path) {
     const embedded = window.flashcardAssets?.[path];
     if (embedded) return embedded;
-    const revised = path.startsWith('assets/scenes-card/cute/') ||
+    const revised = /^assets\/scenes-card(?:-lite|-webp)\//.test(path) || path.startsWith('assets/scenes-card/cute/') ||
       /^assets\/scenes-card(?:-lite|-webp)?\/pig\//.test(path);
-    return revised ? path + '?v=2' : path;
+    return revised ? path + '?v=3' : path;
   }
 
   function wordKey(word) {
@@ -493,6 +493,7 @@
       const {art} = cardScenes.get(card);
       const next = images[index];
       if (decodedScenes.has(next)) {
+        card.classList.toggle('portrait-art', next.naturalHeight > next.naturalWidth);
         if (art.firstElementChild !== next) art.replaceChildren(next);
         delete card.dataset.imageState;
         return;
