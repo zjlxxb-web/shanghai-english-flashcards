@@ -434,23 +434,24 @@
     }
   }
 
-  function artworkPackFor(lesson, imageStyle, priority) {
+  function artworkPackFor(lesson, imageStyle, priority, mode = 'grid') {
     if (imageStyle === bundledStyle || (window.flashcardAssets && !bundledStyle) ||
         !window.fetch || !window.AbortController || !window.TextDecoder || !URL.createObjectURL) return;
     const active = lesson.index === lessonIndex && imageStyle === style;
-    const existing = lesson.packs.get(imageStyle);
+    const key = bundledStyle ? mode + ':' + imageStyle : imageStyle;
+    const existing = lesson.packs.get(key);
     if (existing) {
       if (active) existing.active = true;
       return existing;
     }
     const format = !bundledStyle && compactCards ? 'avif' : 'webp';
-    const pack = {lesson, imageStyle, format, active, controller: new AbortController(), urls: [], ownerUrls: lesson.urls, resolve: []};
+    const pack = {lesson, key, imageStyle, format, active, controller: new AbortController(), urls: [], ownerUrls: lesson.urls, resolve: []};
     pack.words = lesson.deck.map((card) => cardScenes.get(card).word);
-    if (bundledStyle) pack.words = pack.words.flatMap((word) => ['grid:' + word, 'focus:' + word]);
     pack.images = pack.words.map(() => new Promise((resolve) => pack.resolve.push(resolve)));
-    lesson.packs.set(imageStyle, pack);
+    lesson.packs.set(key, pack);
     const directory = bundledStyle ? 'fast-lesson-packs' : 'scenes-grid-packs';
-    const path = 'assets/' + directory + '/' + imageStyle + '/' + lesson.index + '.' + pack.format + '.bin';
+    const suffix = bundledStyle ? '.' + mode : '';
+    const path = 'assets/' + directory + '/' + imageStyle + '/' + lesson.index + suffix + '.' + pack.format + '.bin';
     watchPackProgress(pack);
     pack.done = fetch(assetUrl(path), {priority, signal: pack.controller.signal})
       .then(async (response) => {
@@ -460,7 +461,7 @@
       })
       .catch(() => false)
       .then((complete) => {
-        if (!complete && lesson.packs.get(imageStyle) === pack) lesson.packs.delete(imageStyle);
+        if (!complete && lesson.packs.get(key) === pack) lesson.packs.delete(key);
       })
       .finally(() => {
         clearTimeout(pack.stallTimer);
@@ -471,7 +472,7 @@
   }
 
   function discardArtworkPack(pack, keepUrls = false) {
-    if (pack.lesson.packs.get(pack.imageStyle) === pack) pack.lesson.packs.delete(pack.imageStyle);
+    if (pack.lesson.packs.get(pack.key) === pack) pack.lesson.packs.delete(pack.key);
     pack.controller.abort();
     if (!keepUrls) pack.urls.forEach((url) => {
       URL.revokeObjectURL(url);
@@ -482,9 +483,8 @@
   function loadCardScene(lesson, card, node, priority) {
     const {sceneStyle, sceneView} = node.dataset;
     const index = cardScenes.get(card).index;
-    const position = bundledStyle ? index * 2 + Number(sceneView === 'focus') : index;
     const packedImage = (bundledStyle || sceneView === 'grid') && !sceneLoads.has(node)
-      ? artworkPackFor(lesson, sceneStyle, priority)?.images[position] : null;
+      ? artworkPackFor(lesson, sceneStyle, priority, sceneView)?.images[index] : null;
     return loadScene(node, priority, packedImage, Boolean(bundledStyle));
   }
 
@@ -598,7 +598,7 @@
       const imageStyle = style;
       const pack = artworkPackFor(lesson, imageStyle, 'low');
       if (!pack) return;
-      return Promise.all(lesson.deck.map((card, position) => pack.images[bundledStyle ? position * 2 : position].then((url) => {
+      return Promise.all(lesson.deck.map((card, position) => pack.images[position].then((url) => {
         if (!url || pack.controller.signal.aborted || style !== imageStyle) return;
         const node = sceneFor(card, 'grid', imageStyle);
         return loadScene(node, 'low', Promise.resolve(url));
@@ -615,11 +615,12 @@
     const {index} = request.lesson;
     const otherView = request.mode === 'focus' ? 'grid' : 'focus';
     const warm = async () => {
-      if (request.mode !== 'focus' || !bundledStyle) await prewarmView(index, otherView, cardIndex);
+      if (!bundledStyle) await prewarmView(index, otherView, cardIndex);
       for (const target of [index + 1, index - 1]) {
         if (artworkRequest !== request) return;
         await prewarmView(target, request.mode);
       }
+      if (bundledStyle && artworkRequest === request) await prewarmView(index, otherView, cardIndex);
     };
     request.navigationWarm = warm();
     return request.navigationWarm;
@@ -771,8 +772,9 @@
     artworkRequest = request;
     if (previous && (previous.first !== request.first || previous.style !== style)) {
       const newLesson = previous.first !== request.first;
-      const outdatedPack = previous.lesson.packs.get(previous.style);
-      if (outdatedPack && !outdatedPack.finished) discardArtworkPack(outdatedPack, true);
+      for (const pack of previous.lesson.packs.values()) {
+        if (pack.imageStyle === previous.style && !pack.finished) discardArtworkPack(pack, true);
+      }
       for (const card of previous.deck) {
         for (const node of cardScenes.get(card).images.values()) {
           if (newLesson || (node.dataset.sceneStyle !== style && !returnPreloads.has(node))) {
@@ -888,18 +890,20 @@
     };
     const early = order.slice(0, 2).map((index) => loadVisible(index, 'high'));
     const remaining = order.slice(2).map((index) => loadVisible(index, 'auto'));
-    early[0].then(() => {
+    if (!bundledStyle) early[0].then(() => {
       if (artworkRequest === request) warmFocusCard(cardIndex, true);
     });
     Promise.all([...early, ...remaining]).then(() => {
       if (artworkRequest !== request) return;
       request.ready = true;
-      if (bundledStyle) prewarmGridStyles(request);
+      if (bundledStyle && !navigator.connection?.saveData) warmFocusCard(cardIndex, true);
       prewarmNavigation(request);
       // Let the selected style finish rendering before warming offscreen artwork.
       setTimeout(() => {
         if (artworkRequest !== request) return;
-        nearSelection.slice(1, 3).forEach((index) => warmFocusCard(index));
+        if (!bundledStyle || !navigator.connection?.saveData) {
+          nearSelection.slice(1, 3).forEach((index) => warmFocusCard(index));
+        }
         updateDecorativeArt();
       }, 180);
     });
@@ -1030,11 +1034,6 @@
   styleSelect.addEventListener('change', () => {
     if (style === styleSelect.value || !styles.includes(styleSelect.value)) return;
     style = styleSelect.value;
-    if (bundledStyle && view === 'focus') {
-      saveSettings();
-      window.location.assign(new URL(style + '.html', window.location.href));
-      return;
-    }
     if (bundledStyle && window.location.protocol !== 'file:') {
       const url = new URL(window.location.href);
       if (style === bundledStyle) url.searchParams.delete('style');

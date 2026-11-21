@@ -48,17 +48,17 @@ async function build() {
 
     const packDirectory = path.join(root, 'assets', 'fast-lesson-packs', theme);
     await fs.mkdir(packDirectory, {recursive: true});
-    await Promise.all(window.lessons.map(async (lesson, index) => {
-      const files = lesson[5].flatMap(([text]) => {
+    await Promise.all(window.lessons.flatMap((lesson, index) => ['grid', 'focus'].map(async (view) => {
+      const files = lesson[5].map(([text]) => {
         const word = wordKey(text);
-        return Object.entries(images.get(word)).map(([view, bytes]) => ({word: view + ':' + word, bytes}));
+        return {word, bytes: images.get(word)[view]};
       });
       const table = Buffer.from(JSON.stringify(files.map(({word, bytes}) => ({word, size: bytes.length}))));
       const size = Buffer.alloc(4);
       size.writeUInt32LE(table.length);
-      await fs.writeFile(path.join(packDirectory, index + '.webp.bin'),
+      await fs.writeFile(path.join(packDirectory, index + '.' + view + '.webp.bin'),
         Buffer.concat([size, table, ...files.map(({bytes}) => bytes)]));
-    }));
+    })));
 
     const boot = inlineScript(`window.flashcardBundledStyle = ${JSON.stringify(theme)};\n` +
       `window.flashcardAssets = ${JSON.stringify(assets, null, 2)};\n` + words + '\n' + app);
