@@ -24,8 +24,10 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const speaker = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>';
   const saved = readSettings();
+  const bundledStyle = window.flashcardBundledStyle;
+  const portraitLayout = !window.flashcardAssets || Boolean(bundledStyle);
   const requestedUnit = new URLSearchParams(window.location.search).get('unit');
-  const requestedStyle = new URLSearchParams(window.location.search).get('style');
+  const requestedStyle = bundledStyle || new URLSearchParams(window.location.search).get('style');
   const requestedLesson = window.lessons.findIndex(([label]) => label === 'Unit ' + requestedUnit);
   const previousLesson = Number.isInteger(saved.lesson) && window.lessons[saved.lesson] ? saved.lesson : 1;
   let lessonIndex = requestedLesson >= 0 ? requestedLesson : previousLesson;
@@ -127,7 +129,7 @@
   }
 
   function usesPortraitArt(node) {
-    return node?.dataset.sceneView === 'focus' && !window.flashcardAssets;
+    return node?.dataset.sceneView === 'focus' && portraitLayout;
   }
 
   function applyArt(node, onFailure, packedSource) {
@@ -921,7 +923,7 @@
     learn.classList.toggle('single-card', singleCard);
     stage.classList.toggle('focus-stage', singleCard);
     cards.classList.toggle('focus', singleCard);
-    cards.classList.toggle('portrait-cards', singleCard && !window.flashcardAssets);
+    cards.classList.toggle('portrait-cards', singleCard && portraitLayout);
     visibleArt();
     updateCardNav();
     updateSettings();
@@ -997,8 +999,13 @@
     lessonPickerSummary.focus({preventScroll: true});
   });
   styleSelect.addEventListener('change', () => {
-    if (style === styleSelect.value) return;
+    if (style === styleSelect.value || !styles.includes(styleSelect.value)) return;
     style = styleSelect.value;
+    if (bundledStyle) {
+      saveSettings();
+      window.location.assign(new URL(style + '.html', window.location.href));
+      return;
+    }
     visibleArt();
     loadNavigationPreview();
     updateSettings();
@@ -1087,6 +1094,10 @@
         await probe.decode();
         compactCards = probe.naturalWidth === 2;
       } catch { /* Use WebP when the browser cannot decode AVIF. */ }
+    }
+    if (bundledStyle) {
+      byId('fast-loading')?.remove();
+      document.body.classList.remove('fast-loading');
     }
     chooseLesson(lessonIndex, requestedLesson >= 0 ? 0 : saved.card);
   }
