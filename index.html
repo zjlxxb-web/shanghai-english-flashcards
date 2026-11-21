@@ -12,20 +12,21 @@
   <link rel="icon" href="assets/comic/book.webp" type="image/webp">
   <link rel="stylesheet" href="style.css?v=20">
   <script src="words.js?v=8" defer></script>
-  <script src="app.js?v=29" defer></script>
+  <script src="app.js?v=30" defer></script>
   <script>
     (() => {
-      if (window.flashcardAssets || navigator.connection?.saveData) return;
+      if (window.flashcardAssets || navigator.connection?.saveData || !window.fetch || !window.AbortController ||
+          !window.TextDecoder || !URL.createObjectURL) return;
       const themes = ['textbook', 'comic', 'cute', 'maruko', 'pig', 'shin', 'pixel'];
       const requested = new URLSearchParams(location.search).get('style');
       let saved;
       try { saved = JSON.parse(localStorage.getItem('shanghai-flashcards-v2'))?.style; } catch {}
       const theme = themes.includes(requested) ? requested : themes.includes(saved) ? saved : 'textbook';
-      const image = new Image();
-      image.fetchPriority = 'low';
-      image.decoding = 'async';
-      image.src = 'assets/navigation-previews/' + theme + '.webp';
-      window.navigationPreviewPreload = {theme, image};
+      const controller = new AbortController();
+      const response = fetch('assets/navigation-readable/' + theme + '.bin', {
+        priority: 'low', signal: controller.signal
+      }).catch(() => null);
+      window.navigationReadablePreload = {theme, controller, response};
     })();
   </script>
 </head>
