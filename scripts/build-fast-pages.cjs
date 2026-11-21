@@ -51,7 +51,15 @@ async function build() {
       .replace(/\s*<script src="words\.js[^>]*><\/script>\s*<script src="app\.js[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/, '')
       .replace('<body>', '<body class="fast-loading">')
       .replace('<main class="wrap">', '<p id="fast-loading" class="wrap" role="status">正在一次下载此风格的全部卡图。完成后可直接切换单元和视图。</p>\n  <main class="wrap">')
-      .replace(/<script id="navigation-preview-data"[\s\S]*?<\/script>/, (preview) => preview + '\n  ' + boot);
+      .replace(/<script id="navigation-preview-data"[\s\S]*?<\/script>/, (preview) => preview + '\n  ' + boot)
+      .replace('</body>', `<script>
+  if (new URLSearchParams(location.search).has('trace')) {
+    const script = document.createElement('script');
+    script.src = 'fast/trace.js?v=1';
+    document.body.append(script);
+  }
+</script>
+</body>`);
     if (result.includes('src="app.js') || !result.includes('id="navigation-preview-data"') || !result.includes('window.flashcardAssets =')) {
       throw new Error(`Could not generate the single-file version for ${theme}`);
     }

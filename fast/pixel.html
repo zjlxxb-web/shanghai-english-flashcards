@@ -2326,5 +2326,12 @@ window.hdSceneAssetPaths = {
 })();
 
 </script>
+<script>
+  if (new URLSearchParams(location.search).has('trace')) {
+    const script = document.createElement('script');
+    script.src = 'fast/trace.js?v=1';
+    document.body.append(script);
+  }
+</script>
 </body>
 </html>
