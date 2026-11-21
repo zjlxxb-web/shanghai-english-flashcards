@@ -42,6 +42,19 @@
   const decodedScenes = new WeakSet();
   const returnPreloads = new WeakSet();
   const lessonArtwork = new Map();
+  // Each line is one row in the navigation preview images.
+  const previewRows = [
+    'dad mum grandpa grandma morning afternoon evening good-morning',
+    'good-afternoon good-evening hello friend welcome name hi pencil',
+    'ruler eraser pencil-case book schoolbag pack my blackboard',
+    'desk door chair floor classroom clean on-duty eye',
+    'nose face ear mouth brother sister me family',
+    'warm happy love cat horse dog hen bee',
+    'animal helpful fly-away come-back bird hill flap-wings wash',
+    'take-a-photo tie-shoelaces one two three four five six'
+  ];
+  const previewWordIndexes = new Map(previewRows.join(' ').split(' ').map((word, index) => [word, index]));
+  let navigationPreview;
   const warmUrls = new Set();
   let speculativeStyle;
   let navigationIntent;
@@ -218,7 +231,7 @@
     node.addEventListener('click', () => {
       if (view === 'focus' && Math.abs(cards.scrollLeft - cardOffset(index)) > 8) return;
       setCard(index);
-      if (view === 'focus' && node.dataset.imageState === 'error') artworkRequest?.promote(index);
+      if (view === 'focus' && ['error', 'preview-only'].includes(node.dataset.imageState)) artworkRequest?.promote(index);
       speak(node, word);
     });
     return node;
@@ -268,14 +281,26 @@
     const pending = sceneLoads.get(node);
     if (decodedScenes.has(node)) return pending.promise;
     if (node.fetchPriority !== 'high' || priority === 'high') node.fetchPriority = priority;
-    if (pending) return pending.promise;
+    if (pending) {
+      if (priority === 'high') pending.tryOtherPortrait?.();
+      return pending.promise;
+    }
     const request = {};
     sceneLoads.set(node, request);
     request.promise = new Promise((resolve) => {
       let settled = false;
+      let started = false;
+      let packPending = Boolean(packedImage);
+      let directFailed = false;
+      let fallbackTimer;
+      let portraitTimer;
+      let otherPortrait;
       const finish = (success) => {
         if (settled) return;
         settled = true;
+        clearTimeout(fallbackTimer);
+        clearTimeout(portraitTimer);
+        if (otherPortrait) otherPortrait.removeAttribute('src');
         node.removeEventListener('load', ready);
         if (success) decodedScenes.add(node);
         else {
@@ -285,8 +310,13 @@
         resolve(success);
       };
       const ready = async () => {
+        const source = node.src;
         try { await node.decode(); } catch { /* A loaded image can still be displayed. */ }
         if (settled) return;
+        if (node.src !== source) {
+          node.addEventListener('load', ready, {once: true});
+          return;
+        }
         if (node.naturalWidth && usesPortraitArt(node) && node.naturalWidth * 4 !== node.naturalHeight * 3) {
           node.addEventListener('load', ready, {once: true});
           node.onerror();
@@ -300,13 +330,48 @@
         node.removeAttribute('src');
         finish(false);
       };
+      request.tryOtherPortrait = () => {
+        if (portraitTimer || !usesPortraitArt(node) || !compactCards || navigator.connection?.saveData ||
+            navigationPreview?.style !== node.dataset.sceneStyle) return;
+        const first = node.src;
+        if (!/\.avif(?:\?|$)/.test(first)) return;
+        const stillWaiting = () => !settled && node.src === first && !(node.complete && node.naturalWidth);
+        portraitTimer = setTimeout(() => {
+          if (!stillWaiting()) return;
+          const path = 'assets/scenes/' + node.dataset.sceneStyle + '/' + node.dataset.image + '.webp';
+          const [, webp] = cardAssetPaths(path);
+          if (!webp) return;
+          // Keep the original request in flight and use the other format only if it arrives first.
+          otherPortrait = new Image();
+          otherPortrait.onload = () => {
+            if (stillWaiting() && otherPortrait.naturalWidth * 4 === otherPortrait.naturalHeight * 3) {
+              node.src = otherPortrait.src;
+            }
+          };
+          otherPortrait.src = assetUrl(webp);
+        }, 550);
+      };
       const load = (source) => {
         if (settled) return;
+        started = true;
         node.addEventListener('load', ready, {once: true});
-        applyArt(node, () => finish(false), source);
+        applyArt(node, () => {
+          if (packPending) directFailed = true;
+          else finish(false);
+        }, source);
       };
-      if (packedImage) packedImage.then(load);
-      else load();
+      if (packedImage) {
+        if (priority !== 'low') fallbackTimer = setTimeout(load, priority === 'high' ? 180 : 360);
+        packedImage.then((source) => {
+          packPending = false;
+          clearTimeout(fallbackTimer);
+          if (!started || (source && !(node.complete && node.naturalWidth))) load(source);
+          else if (directFailed) finish(false);
+        });
+      } else {
+        load();
+        if (priority === 'high') request.tryOtherPortrait();
+      }
     });
     return request.promise;
   }
@@ -556,6 +621,49 @@
     button.addEventListener('pointerdown', () => prepare(0));
   }
 
+  function loadNavigationPreview() {
+    if (window.flashcardAssets || navigator.connection?.saveData || navigationPreview?.style === style) return;
+    if (navigationPreview && !navigationPreview.ready) navigationPreview.atlas.removeAttribute('src');
+    const atlas = new Image();
+    const preview = {style, atlas, ready: false};
+    navigationPreview = preview;
+    atlas.fetchPriority = 'low';
+    atlas.decoding = 'async';
+    atlas.onload = async () => {
+      try { await atlas.decode(); } catch { /* The loaded atlas can still be drawn. */ }
+      if (navigationPreview !== preview) return;
+      preview.ready = atlas.naturalWidth === 768 && atlas.naturalHeight === previewRows.length * 192;
+      if (preview.ready) artworkRequest?.refreshPreviews?.();
+    };
+    atlas.onerror = () => {
+      if (navigationPreview === preview) navigationPreview = undefined;
+    };
+    atlas.src = assetUrl('assets/navigation-previews/' + style + '.webp');
+  }
+
+  function previewScene(card, node) {
+    if (!navigationPreview?.ready || navigationPreview.style !== node.dataset.sceneStyle) return;
+    const index = previewWordIndexes.get(node.dataset.image);
+    if (index === undefined) return;
+    const scene = cardScenes.get(card);
+    const portrait = node.dataset.sceneView === 'focus';
+    const key = node.dataset.sceneView + ':' + navigationPreview.style;
+    if (scene.previewKey === key) return scene.preview;
+    const canvas = scene.preview || make('canvas', 'scene-art');
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    canvas.width = portrait ? 72 : 96;
+    canvas.height = portrait ? 96 : 72;
+    const row = Math.floor(index / 8) + (portrait ? previewRows.length : 0);
+    context.drawImage(navigationPreview.atlas, index % 8 * 96, row * 96, canvas.width, canvas.height,
+      0, 0, canvas.width, canvas.height);
+    canvas.dataset.sceneView = node.dataset.sceneView;
+    canvas.dataset.sceneStyle = node.dataset.sceneStyle;
+    scene.preview = canvas;
+    scene.previewKey = key;
+    return canvas;
+  }
+
   function visibleArt() {
     const focused = view === 'focus';
     const deck = Array.from(cards.children);
@@ -624,6 +732,12 @@
         card.dataset.imageState = 'switching';
         return;
       }
+      const preview = (!focused || Math.abs(index - cardIndex) <= 1) && previewScene(card, next);
+      if (preview) {
+        if (displayed !== preview) art.replaceChildren(preview);
+        card.dataset.imageState = 'switching';
+        return;
+      }
       if (art.firstElementChild !== next) art.replaceChildren(next);
       card.dataset.imageState = 'loading';
     }
@@ -631,11 +745,19 @@
     const loadVisible = (index, priority) => loadCardScene(request.lesson, deck[index], images[index], priority).then((ready) => {
       if (artworkRequest !== request) return;
       if (ready) showScene(index);
-      else if (deck[index].dataset.imageState) deck[index].dataset.imageState = 'error';
+      else if (deck[index].dataset.imageState) {
+        const scene = cardScenes.get(deck[index]);
+        deck[index].dataset.imageState = scene.preview && scene.art.firstElementChild === scene.preview ? 'preview-only' : 'error';
+      }
+    });
+    request.refreshPreviews = () => order.forEach((index) => {
+      if (['loading', 'switching'].includes(deck[index].dataset.imageState)) showScene(index);
     });
     order.forEach(showScene);
     if (focused) {
-      request.promote = (index) => loadVisible(index, 'high').then(() => {
+      request.promote = async (index) => {
+        showScene(index);
+        await loadVisible(index, 'high');
         if (artworkRequest !== request || cardIndex !== index) return;
         if (!request.ready) {
           request.ready = true;
@@ -653,7 +775,7 @@
           if (index > 0) loadVisible(index - 1, 'low');
           if (index + 1 < deck.length) loadVisible(index + 1, 'low');
         }, 180);
-      });
+      };
       request.promote(cardIndex);
       return;
     }
@@ -774,6 +896,7 @@
     }
     if (cards.firstElementChild !== artwork.deck[0]) cards.replaceChildren(...artwork.deck);
     renderView();
+    loadNavigationPreview();
     saveSettings();
   }
 
@@ -809,6 +932,7 @@
     if (style === styleSelect.value) return;
     style = styleSelect.value;
     visibleArt();
+    loadNavigationPreview();
     updateSettings();
     saveSettings();
   });
@@ -867,7 +991,7 @@
   });
   window.addEventListener('resize', () => alignCard());
   window.addEventListener('online', () => {
-    if (view === 'focus' && cards.children[cardIndex]?.dataset.imageState === 'error') {
+    if (view === 'focus' && ['error', 'preview-only'].includes(cards.children[cardIndex]?.dataset.imageState)) {
       artworkRequest?.promote(cardIndex);
     }
   });

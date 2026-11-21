@@ -147,7 +147,8 @@ h1 span { color: #ebf783; }
   object-fit: contain;
   pointer-events: none;
 }
-.cards .card[data-image-state]:not([data-image-state="switching"]) .card-art::after {
+.cards .card[data-image-state="loading"] .card-art::after,
+.cards .card[data-image-state="error"] .card-art::after {
   position: absolute;
   inset: 0;
   display: grid;
@@ -156,8 +157,10 @@ h1 span { color: #ebf783; }
   font-size: 14px;
   content: "正在加载图片…";
 }
-.cards .card[data-image-state]:not([data-image-state="switching"]) .scene-art { visibility: hidden; }
-.cards.focus .card[data-image-state="switching"] .card-art::after {
+.cards .card[data-image-state="loading"] .scene-art,
+.cards .card[data-image-state="error"] .scene-art { visibility: hidden; }
+.cards.focus .card[data-image-state="switching"] .card-art::after,
+.cards.focus .card[data-image-state="preview-only"] .card-art::after {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -169,6 +172,7 @@ h1 span { color: #ebf783; }
   content: "正在切换图片…";
   animation: show-image-switch 150ms step-end both;
 }
+.cards.focus .card[data-image-state="preview-only"] .card-art::after { content: "暂显示缩略图"; }
 @keyframes show-image-switch { from { opacity: 0; } to { opacity: 1; } }
 .counting-lesson .cards.focus .card[data-image-state]:not([data-image-state="switching"]) .card-art { min-height: 140px; }
 .cards .card[data-image-state="error"] .card-art::after { content: "图片暂未加载"; }
