@@ -55,6 +55,7 @@
   ];
   const previewWordIndexes = new Map(previewRows.join(' ').split(' ').map((word, index) => [word, index]));
   let navigationPreview;
+  let navigationPreviewSources;
   const warmUrls = new Set();
   let speculativeStyle;
   let navigationIntent;
@@ -622,40 +623,63 @@
   }
 
   function loadNavigationPreview() {
-    if (window.flashcardAssets || navigator.connection?.saveData || navigationPreview?.style === style) return;
-    if (navigationPreview && !navigationPreview.ready) navigationPreview.atlas.removeAttribute('src');
-    const atlas = new Image();
-    const preview = {style, atlas, ready: false};
+    if (window.flashcardAssets || navigationPreview?.style === style) return;
+    const preview = {style, tile: 0};
     navigationPreview = preview;
-    atlas.fetchPriority = 'low';
-    atlas.decoding = 'async';
-    atlas.onload = async () => {
-      try { await atlas.decode(); } catch { /* The loaded atlas can still be drawn. */ }
-      if (navigationPreview !== preview) return;
-      preview.ready = atlas.naturalWidth === 768 && atlas.naturalHeight === previewRows.length * 192;
-      if (preview.ready) artworkRequest?.refreshPreviews?.();
+    const use = (image, tile) => {
+      const ready = () => {
+        if (navigationPreview !== preview || preview.tile >= tile || image.naturalWidth !== tile * 8 ||
+            image.naturalHeight !== tile * previewRows.length * 2) return;
+        preview.atlas = image;
+        preview.tile = tile;
+        artworkRequest?.refreshPreviews?.();
+      };
+      if (image.complete && image.naturalWidth) ready();
+      else image.addEventListener('load', ready, {once: true});
     };
-    atlas.onerror = () => {
-      if (navigationPreview === preview) navigationPreview = undefined;
-    };
-    atlas.src = assetUrl('assets/navigation-previews/' + style + '.webp');
+    const embedded = byId('navigation-preview-data');
+    if (embedded) {
+      if (!navigationPreviewSources) {
+        try { navigationPreviewSources = JSON.parse(embedded.textContent); }
+        catch { navigationPreviewSources = {}; }
+      }
+      const encoded = navigationPreviewSources[style];
+      if (encoded) {
+        const image = new Image();
+        use(image, 48);
+        image.src = 'data:image/webp;base64,' + encoded;
+      }
+    }
+    if (navigator.connection?.saveData) return;
+    const preloaded = window.navigationPreviewPreload;
+    if (preloaded?.theme === style) {
+      use(preloaded.image, 96);
+      delete window.navigationPreviewPreload;
+    } else {
+      const image = new Image();
+      image.fetchPriority = 'low';
+      image.decoding = 'async';
+      use(image, 96);
+      image.src = assetUrl('assets/navigation-previews/' + style + '.webp');
+    }
   }
 
   function previewScene(card, node) {
-    if (!navigationPreview?.ready || navigationPreview.style !== node.dataset.sceneStyle) return;
+    if (!navigationPreview?.tile || navigationPreview.style !== node.dataset.sceneStyle) return;
     const index = previewWordIndexes.get(node.dataset.image);
     if (index === undefined) return;
     const scene = cardScenes.get(card);
     const portrait = node.dataset.sceneView === 'focus';
-    const key = node.dataset.sceneView + ':' + navigationPreview.style;
+    const {tile} = navigationPreview;
+    const key = node.dataset.sceneView + ':' + navigationPreview.style + ':' + tile;
     if (scene.previewKey === key) return scene.preview;
     const canvas = scene.preview || make('canvas', 'scene-art');
     const context = canvas.getContext('2d');
     if (!context) return;
-    canvas.width = portrait ? 72 : 96;
-    canvas.height = portrait ? 96 : 72;
+    canvas.width = portrait ? tile * 3 / 4 : tile;
+    canvas.height = portrait ? tile : tile * 3 / 4;
     const row = Math.floor(index / 8) + (portrait ? previewRows.length : 0);
-    context.drawImage(navigationPreview.atlas, index % 8 * 96, row * 96, canvas.width, canvas.height,
+    context.drawImage(navigationPreview.atlas, index % 8 * tile, row * tile, canvas.width, canvas.height,
       0, 0, canvas.width, canvas.height);
     canvas.dataset.sceneView = node.dataset.sceneView;
     canvas.dataset.sceneStyle = node.dataset.sceneStyle;
@@ -1011,6 +1035,7 @@
   byId('previous').addEventListener('click', () => move(-1));
   byId('next').addEventListener('click', () => move(1));
   async function loadFirstLesson() {
+    loadNavigationPreview();
     if (!window.flashcardAssets) {
       const probe = new Image();
       probe.src = 'data:image/avif;base64,AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAAB0AAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBjbwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAABZpcG1hAAAAAAAAAAEAAQOBAgMAAAAlbWRhdBIACgc4ADaQENBpMhAZQmMEwAA0AACQQMkcYIpq';
