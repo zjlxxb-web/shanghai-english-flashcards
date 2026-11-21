@@ -74,6 +74,9 @@
   function assetUrl(path) {
     const embedded = window.flashcardAssets?.[path];
     if (embedded) return embedded;
+    if (/^assets\/scenes-card-(?:lite|webp)\/cute\//.test(path) ||
+        /^assets\/(?:scenes|scenes-card(?:-lite|-webp)?)\/pig\/face\.(?:avif|webp)$/.test(path) ||
+        /^assets\/scenes-grid-packs\/pig\/5\.(?:avif|webp)\.bin$/.test(path)) return path + '?v=5';
     const revised = /^assets\/scenes-card(?:-lite|-webp)\//.test(path) || path.startsWith('assets/scenes-card/cute/') ||
       /^assets\/scenes-card(?:-lite|-webp)?\/pig\//.test(path);
     return revised ? path + '?v=4' : path;
@@ -334,7 +337,7 @@
     pack.images = pack.words.map(() => new Promise((resolve) => pack.resolve.push(resolve)));
     gridPacks.set(imageStyle, pack);
     const path = 'assets/scenes-grid-packs/' + imageStyle + '/' + lessonIndex + '.' + pack.format + '.bin';
-    pack.done = fetch(path, {priority, signal: pack.controller.signal})
+    pack.done = fetch(assetUrl(path), {priority, signal: pack.controller.signal})
       .then((response) => response.ok ? readGridPack(response, pack) : undefined)
       .catch(() => {})
       .finally(() => {
@@ -407,12 +410,10 @@
     return warm.promise;
   }
 
-  async function prewarmStyles(request) {
+  async function prewarmGridStyles(request) {
     if (request.warming || artworkRequest !== request || window.flashcardAssets ||
         !window.fetch || !window.AbortController || navigator.connection?.saveData) return;
     request.warming = true;
-    // In single mode, prepare sharp versions of the visible word before other styles' grids.
-    if (request.mode === 'focus') await prewarmFocusedStyles(request);
     const start = styles.indexOf(request.style);
     const others = styles.slice(start + 1).concat(styles.slice(0, start));
     for (const imageStyle of others) {
@@ -424,7 +425,7 @@
       const controller = new AbortController();
       const job = {style: imageStyle, pack, controller};
       speculativeStyle = job;
-      const warm = request.mode === 'focus' || !url || warmUrls.has(url) ? null :
+      const warm = !url || warmUrls.has(url) ? null :
         fetch(url, {cache: 'force-cache', priority: 'low', signal: controller.signal}).then(async (response) => {
           if (!response.ok) return;
           await response.arrayBuffer();
@@ -446,18 +447,13 @@
     });
     if (!deck.length) return;
     if (artworkRequest?.first === deck[0] && artworkRequest.mode === view && artworkRequest.style === style) {
-      if (focused) {
-        const request = artworkRequest;
-        const index = cardIndex;
-        request.promote(index).then(() => setTimeout(() => {
-          if (artworkRequest === request && cardIndex === index) prewarmFocusedStyles(request);
-        }, 180));
-      }
+      if (focused) artworkRequest.promote(cardIndex);
       else loadScene(sceneFor(deck[cardIndex], 'focus', style), 'low');
       return;
     }
-    stopSpeculation(style);
-    if (focused && focusedStyleWarm?.card === deck[cardIndex]) {
+    stopSpeculation(focused ? undefined : style);
+    if (!focused) releaseFocusedStyles();
+    if (focusedStyleWarm?.card === deck[cardIndex]) {
       for (const [imageStyle, node] of focusedStyleWarm.images) {
         if (imageStyle !== style && !decodedScenes.has(node)) sceneLoads.get(node)?.cancel();
       }
@@ -477,6 +473,10 @@
           }
         }
       }
+    } else if (focused && previous?.mode === 'grid') {
+      const pack = gridPacks.get(style);
+      if (pack && !pack.finished) discardGridPack(style, pack, true);
+      previous.images.forEach((node) => sceneLoads.get(node)?.cancel());
     } else if (!focused && previous?.mode === 'focus') {
       // The grid is visible now. Keep nearby single cards warm without competing for every card.
       previous.images.forEach((node, index) => {
@@ -484,9 +484,6 @@
       });
     }
     const order = deck.map((_, index) => index);
-    const alternate = focused ? 'grid' : 'focus';
-    const alternateOrder = [...order].sort((a, b) => Math.abs(a - cardIndex) - Math.abs(b - cardIndex));
-    const foregroundOrder = focused ? alternateOrder : order;
 
     function showScene(index) {
       const card = deck[index];
@@ -513,54 +510,54 @@
       if (ready) showScene(index);
       else if (deck[index].dataset.imageState) deck[index].dataset.imageState = 'error';
     });
-    request.promote = (index) => loadVisible(index, 'high');
-    const warmOther = (index, optional = true) => {
-      const node = sceneFor(deck[index], alternate, request.style);
-      if (optional) loadCardScene(deck[index], node, 'low');
+    order.forEach(showScene);
+    if (focused) {
+      request.promote = (index) => loadVisible(index, 'high').then(() => {
+        if (artworkRequest !== request || cardIndex !== index) return;
+        if (!request.ready) {
+          request.ready = true;
+          setTimeout(() => {
+            if (artworkRequest === request) updateDecorativeArt();
+          }, 180);
+        }
+        prewarmFocusedStyles(request);
+        // Keep nearby cards ready for swipes. Grid packs are loaded in grid view.
+        if (navigator.connection?.saveData) return;
+        setTimeout(() => {
+          if (artworkRequest !== request || cardIndex !== index) return;
+          if (index > 0) loadVisible(index - 1, 'low');
+          if (index + 1 < deck.length) loadVisible(index + 1, 'low');
+        }, 180);
+      });
+      request.promote(cardIndex);
+      return;
+    }
+
+    const nearSelection = [...order].sort((a, b) => Math.abs(a - cardIndex) - Math.abs(b - cardIndex));
+    const warmFocusCard = (index, keepOnStyleChange = false) => {
+      const node = sceneFor(deck[index], 'focus', request.style);
+      if (!keepOnStyleChange) loadCardScene(deck[index], node, 'low');
       else {
         // Keep just the selected card warm for returning to single view.
         returnPreloads.add(node);
         loadCardScene(deck[index], node, 'low').then(() => returnPreloads.delete(node));
       }
     };
-
-    order.forEach(showScene);
-    const urgent = foregroundOrder.slice(0, focused ? 1 : 2);
-    const early = urgent.map((index) => loadVisible(index, 'high'));
-    const loadRemaining = () => {
-      if (artworkRequest !== request) return;
-      const rest = foregroundOrder.slice(urgent.length);
-      if (!focused) return Promise.all(rest.map((index) => loadVisible(index, 'auto')));
-      const nearby = rest.slice(0, 2).map((index) => loadVisible(index, 'low'));
-      return Promise.all(nearby).then(() => {
-        if (artworkRequest === request) {
-          prewarmFocusedStyles(request);
-          return Promise.all(rest.slice(2).map((index) => loadVisible(index, 'low')));
-        }
-      });
-    };
-    const changingStyle = previous?.first === request.first && previous.style !== style;
-    if (focused && !changingStyle) order.forEach((index) => warmOther(index));
-    const remaining = focused ? Promise.all(early).then(loadRemaining) : loadRemaining();
-    if (focused) {
-      Promise.all(early).then(() => {
-        if (changingStyle && artworkRequest === request) order.forEach((index) => warmOther(index));
-      });
-    } else {
-      Promise.all(early).then(() => {
-        if (artworkRequest === request) warmOther(alternateOrder[0], false);
-      });
-    }
-    Promise.all([...early, remaining]).then(() => {
+    const early = order.slice(0, 2).map((index) => loadVisible(index, 'high'));
+    const remaining = order.slice(2).map((index) => loadVisible(index, 'auto'));
+    Promise.all(early).then(() => {
+      if (artworkRequest === request) warmFocusCard(cardIndex, true);
+    });
+    Promise.all([...early, ...remaining]).then(() => {
       if (artworkRequest !== request) return;
       request.ready = true;
       // Let the selected style finish rendering before warming offscreen artwork.
       setTimeout(() => {
         if (artworkRequest !== request) return;
-        if (!focused) alternateOrder.slice(1, 3).forEach((index) => warmOther(index));
+        nearSelection.slice(1, 3).forEach((index) => warmFocusCard(index));
         updateDecorativeArt();
       }, 180);
-      setTimeout(() => prewarmStyles(request), 350);
+      setTimeout(() => prewarmGridStyles(request), 350);
     });
   }
 
@@ -685,7 +682,7 @@
   styleSelect.addEventListener('pointerdown', () => {
     if (artworkRequest?.ready) {
       if (view === 'focus') prewarmFocusedStyles(artworkRequest);
-      else prewarmStyles(artworkRequest);
+      else prewarmGridStyles(artworkRequest);
     }
   });
   buttons.forEach((button) => button.addEventListener('click', () => {
