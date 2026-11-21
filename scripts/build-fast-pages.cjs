@@ -29,6 +29,7 @@ async function build() {
 
   for (const theme of themes) {
     const assets = {};
+    const images = new Map();
     for (const word of keys) {
       const portrait = `assets/scenes-card-webp/${theme}/${word}.webp`;
       const landscape = `assets/scenes/${theme}/${word}.webp`;
@@ -38,11 +39,26 @@ async function build() {
       ]);
       assets[`assets/scenes-card/${theme}/${word}.webp`] = dataUrl(single);
       assets[landscape] = dataUrl(grid);
+      images.set(word, {grid, focus: single});
     }
     for (const icon of icons) {
       const file = `assets/${theme}/${icon}.webp`;
       assets[file] = dataUrl(await sharp(path.join(root, file)).resize({width: 96, withoutEnlargement: true}).webp({quality: 55}).toBuffer());
     }
+
+    const packDirectory = path.join(root, 'assets', 'fast-lesson-packs', theme);
+    await fs.mkdir(packDirectory, {recursive: true});
+    await Promise.all(window.lessons.map(async (lesson, index) => {
+      const files = lesson[5].flatMap(([text]) => {
+        const word = wordKey(text);
+        return Object.entries(images.get(word)).map(([view, bytes]) => ({word: view + ':' + word, bytes}));
+      });
+      const table = Buffer.from(JSON.stringify(files.map(({word, bytes}) => ({word, size: bytes.length}))));
+      const size = Buffer.alloc(4);
+      size.writeUInt32LE(table.length);
+      await fs.writeFile(path.join(packDirectory, index + '.webp.bin'),
+        Buffer.concat([size, table, ...files.map(({bytes}) => bytes)]));
+    }));
 
     const boot = inlineScript(`window.flashcardBundledStyle = ${JSON.stringify(theme)};\n` +
       `window.flashcardAssets = ${JSON.stringify(assets, null, 2)};\n` + words + '\n' + app);
@@ -58,7 +74,7 @@ async function build() {
       .replace('</body>', `<script>
   if (new URLSearchParams(location.search).has('trace')) {
     const script = document.createElement('script');
-    script.src = 'fast/trace.js?v=1';
+    script.src = 'fast/trace.js?v=2';
     document.body.append(script);
   }
 </script>

@@ -131,7 +131,7 @@
       for (const resource of batch.getEntries()) {
         if (!current || resource.startTime < current.start || !resource.name.includes('/assets/')) continue;
         const file = new URL(resource.name).pathname.split('/').slice(-3).join('/');
-        if (/scenes/.test(file)) record('resource', {file, duration: Math.round(resource.duration)});
+        if (/scenes|fast-lesson-packs/.test(file)) record('resource', {file, duration: Math.round(resource.duration)});
       }
     }).observe({type: 'resource'});
   }
