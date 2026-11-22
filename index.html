@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="style.css?v=20">
   <script src="words.js?v=9" defer></script>
   <script src="critical.js?v=5" defer></script>
-  <script src="app.js?v=46" defer></script>
+  <script src="app.js?v=47" defer></script>
 </head>
 <body>
   <header class="top">
@@ -117,11 +117,20 @@
         navigator.serviceWorker.register("./sw.js").catch(function () {});
       });
     }
-    // 首屏渲染后空闲时预取 grid pack（降低切多卡视图时的等待）
+    // 首屏渲染后空闲时预取相邻单元卡片图片 + grid pack
     window.addEventListener("load", function () {
       var idle = window.requestIdleCallback || function (cb) { return setTimeout(cb, 2000); };
       idle(function () {
-        fetch("assets/navigation-readable/textbook.bin", { priority: "low", mode: "same-origin" }).catch(function () {});
+        var style = document.getElementById("style-select")?.value || "textbook";
+        // 预取 grid pack
+        fetch("assets/navigation-readable/" + style + ".bin", { priority: "low", mode: "same-origin" }).catch(function () {});
+        // 预取下一个单元的所有卡片图片
+        if (window.lessons && window.lessons.length > 1) {
+          var nextWords = window.lessons[1][5];
+          for (var i = 0; i < nextWords.length; i++) {
+            fetch("assets/scenes-card-lite/" + style + "/" + nextWords[i][0] + ".avif", { priority: "low", mode: "same-origin" }).catch(function () {});
+          }
+        }
       });
     });
   </script>
