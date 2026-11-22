@@ -61,6 +61,12 @@
   ];
   const previewWordIndexes = new Map(previewRows.join(' ').split(' ').map((word, index) => [word, index]));
   const lessonWords = window.lessons.map((lesson) => lesson[5].map(([word]) => wordKey(word)));
+  const portraitWords = [...new Set([
+    ...lessonWords.map((words) => words[0]),
+    ...lessonWords.map((words) => words[1]).filter(Boolean),
+    ...lessonWords.flat()
+  ])];
+  const stylePortraitPacks = new Map();
   // Place each unit's opening portrait and first grid row before the rest of the grid.
   const readableKeys = [...new Set([
     ...lessonWords.flatMap((words) => ['focus:' + words[0], ...words.slice(0, 2).map((word) => 'grid:' + word)]),
@@ -326,7 +332,7 @@
     return node;
   }
 
-  function loadScene(node, priority, packedImage, preferPack = false) {
+  function loadScene(node, priority, packedImage, preferPack = false, directPortrait = false) {
     const pending = sceneLoads.get(node);
     if (decodedScenes.has(node)) return pending.promise;
     if (node.fetchPriority !== 'high' || priority === 'high') node.fetchPriority = priority;
@@ -419,7 +425,10 @@
             if (settled || started || !packPending || fallbackTimer) return;
             fallbackTimer = setTimeout(load, 450);
           };
-          if (priority === 'high') request.prioritizePortrait();
+          if (priority === 'high') {
+            if (directPortrait) load();
+            else request.prioritizePortrait();
+          }
         }
         if (priority !== 'low' && !preferPack) fallbackTimer = setTimeout(load, priority === 'high' ? 180 : 360);
         packedImage.then((source) => {
@@ -529,14 +538,54 @@
     });
   }
 
-  function loadCardScene(lesson, card, node, priority) {
+  function prepareStylePortraits(imageStyle) {
+    if (!bundledStyle || imageStyle === bundledStyle || stylePortraitPacks.has(imageStyle) ||
+        navigator.connection?.saveData || !navigator.onLine || !window.fetch || !window.AbortController ||
+        !window.TextDecoder || !URL.createObjectURL) return;
+    const pack = {controller: new AbortController(), format: 'webp', urls: [], words: portraitWords, resolve: [], available: new Map()};
+    pack.images = new Map(portraitWords.map((word) => [word, new Promise((resolve) => {
+      pack.resolve.push((url) => {
+        if (url) pack.available.set(word, url);
+        resolve(url);
+      });
+    })]));
+    stylePortraitPacks.set(imageStyle, pack);
+    watchPackProgress(pack);
+    fetch(assetUrl('assets/fast-style-portraits/' + imageStyle + '.webp.bin'), {
+      priority: 'low', signal: pack.controller.signal
+    }).then(async (response) => {
+      if (response.ok) await readArtworkPack(response, pack);
+    }).catch(() => {}).finally(() => {
+      clearTimeout(pack.stallTimer);
+      pack.resolve.forEach((resolve) => resolve(null));
+      if (!pack.available.size) stylePortraitPacks.delete(imageStyle);
+    });
+  }
+
+  function firstImageSource(primary, alternate) {
+    if (!primary || !alternate) return primary || alternate;
+    return new Promise((resolve) => {
+      let missing = 0;
+      const accept = (url) => {
+        if (url || ++missing === 2) resolve(url);
+      };
+      primary.then(accept);
+      alternate.then(accept);
+    });
+  }
+
+  function loadCardScene(lesson, card, node, priority, directPortrait = false) {
     const {sceneStyle, sceneView} = node.dataset;
     const {index, word} = cardScenes.get(card);
     const directory = sceneView === 'focus' ? 'scenes-card' : 'scenes';
     const embedded = window.flashcardAssets?.['assets/' + directory + '/' + sceneStyle + '/' + word + '.webp'];
+    const portraits = sceneView === 'focus' && !embedded && !sceneLoads.has(node) && stylePortraitPacks.get(sceneStyle);
+    const cachedPortrait = portraits && portraits.available.get(word);
+    if (cachedPortrait) return loadScene(node, priority, Promise.resolve(cachedPortrait), true);
     const packedImage = (bundledStyle || sceneView === 'grid') && !embedded && !sceneLoads.has(node)
       ? artworkPackFor(lesson, sceneStyle, priority, sceneView)?.images[index] : null;
-    return loadScene(node, priority, packedImage, Boolean(bundledStyle));
+    return loadScene(node, priority, firstImageSource(packedImage, portraits && portraits.images.get(word)),
+      Boolean(bundledStyle), directPortrait);
   }
 
   function stopSpeculation(nextStyle) {
@@ -820,6 +869,7 @@
     const images = deck.map((card) => sceneFor(card, view, style));
     const previous = artworkRequest;
     const request = {first: deck[0], style, mode: view, images, deck, lesson: getLessonArtwork(lessonIndex)};
+    const switchingPortrait = Boolean(bundledStyle && focused && previous && previous.style !== style);
     artworkRequest = request;
     if (previous && (previous.first !== request.first || previous.style !== style)) {
       const newLesson = previous.first !== request.first;
@@ -883,10 +933,10 @@
     const preview = navigationPreview;
     const waitForGridDetails = !focused && preview?.style === request.style && deck.every((card) =>
       preview.readable.has('grid:' + cardScenes.get(card).word)) ? new Promise((resolve) => setTimeout(resolve, 180)) : null;
-    const loadVisible = async (index, priority) => {
+    const loadVisible = async (index, priority, directPortrait = false) => {
       if (waitForGridDetails) await waitForGridDetails;
       if (artworkRequest !== request) return;
-      const ready = await loadCardScene(request.lesson, deck[index], images[index], priority);
+      const ready = await loadCardScene(request.lesson, deck[index], images[index], priority, directPortrait);
       if (artworkRequest !== request) return;
       if (ready) showScene(index);
       else if (deck[index].dataset.imageState && deck[index].dataset.imageState !== 'readable') {
@@ -901,9 +951,9 @@
     });
     order.forEach(showScene);
     if (focused) {
-      request.promote = async (index) => {
+      request.promote = async (index, directPortrait) => {
         showScene(index);
-        const selected = loadVisible(index, 'high');
+        const selected = loadVisible(index, 'high', directPortrait);
         const inBundle = request.style === bundledStyle;
         const warmNeighbors = () => {
           if (artworkRequest !== request || cardIndex !== index) return;
@@ -916,6 +966,7 @@
         if (!request.ready) {
           request.ready = true;
           prepareFullBundle();
+          prepareStylePortraits(request.style);
           setTimeout(() => {
             if (artworkRequest === request) updateDecorativeArt();
           }, 180);
@@ -926,7 +977,7 @@
         // Keep nearby cards ready for swipes. Grid packs are loaded in grid view.
         if (!bundledStyle && !navigator.connection?.saveData) setTimeout(warmNeighbors, 180);
       };
-      request.promote(cardIndex);
+      request.promote(cardIndex, switchingPortrait);
       return;
     }
 

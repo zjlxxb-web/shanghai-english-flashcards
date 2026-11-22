@@ -13,6 +13,13 @@ const wordKey = (word) => word.toLowerCase().replace(/[^a-z ]/g, '').trim().repl
 const dataUrl = (bytes) => 'data:image/webp;base64,' + bytes.toString('base64');
 const inlineScript = (code) => '<script>\n' + code.replace(/<\/script/gi, '<\\/script') + '\n</script>';
 
+function artworkPack(files) {
+  const table = Buffer.from(JSON.stringify(files.map(({word, bytes}) => ({word, size: bytes.length}))));
+  const size = Buffer.alloc(4);
+  size.writeUInt32LE(table.length);
+  return Buffer.concat([size, table, ...files.map(({bytes}) => bytes)]);
+}
+
 async function build() {
   const [html, css, words, app, trace] = await Promise.all(
     ['index.html', 'style.css', 'words.js', 'app.js', 'fast/trace.js'].map(read)
@@ -26,10 +33,13 @@ async function build() {
   const themes = Array.from(html.matchAll(/<option value="([a-z]+)"/g), ([, theme]) => theme);
   const destination = path.join(root, 'fast');
   const bundleDirectory = 'assets/fast-style-data';
-  await Promise.all([destination, path.join(root, bundleDirectory)].map((directory) => fs.mkdir(directory, {recursive: true})));
+  const portraitDirectory = path.join(root, 'assets', 'fast-style-portraits');
+  await Promise.all([destination, path.join(root, bundleDirectory), portraitDirectory].map((directory) => fs.mkdir(directory, {recursive: true})));
   // Inline the default lesson in both views and the opening portrait of each lesson.
   const defaultWords = new Set(window.lessons[1][5].map(([word]) => wordKey(word)));
   const openingWords = new Set(window.lessons.map((lesson) => wordKey(lesson[5][0][0])));
+  const secondWords = window.lessons.flatMap((lesson) => lesson[5].slice(1, 2).map(([word]) => wordKey(word)));
+  const portraitWords = new Set([...openingWords, ...secondWords, ...keys]);
 
   for (const theme of themes) {
     const assets = {};
@@ -60,12 +70,10 @@ async function build() {
         const word = wordKey(text);
         return {word, bytes: images.get(word)[view]};
       });
-      const table = Buffer.from(JSON.stringify(files.map(({word, bytes}) => ({word, size: bytes.length}))));
-      const size = Buffer.alloc(4);
-      size.writeUInt32LE(table.length);
-      await fs.writeFile(path.join(packDirectory, index + '.' + view + '.webp.bin'),
-        Buffer.concat([size, table, ...files.map(({bytes}) => bytes)]));
+      await fs.writeFile(path.join(packDirectory, index + '.' + view + '.webp.bin'), artworkPack(files));
     })));
+    const portraits = Array.from(portraitWords, (word) => ({word, bytes: images.get(word).focus}));
+    await fs.writeFile(path.join(portraitDirectory, theme + '.webp.bin'), artworkPack(portraits));
 
     const bundlePath = `${bundleDirectory}/${theme}.js`;
     await fs.writeFile(path.join(root, bundlePath),
