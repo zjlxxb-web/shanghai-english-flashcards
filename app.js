@@ -125,9 +125,21 @@
       const script = make('script');
       script.fetchPriority = 'low';
       script.src = deferredBundle;
-      script.onload = script.onerror = () => {
+      const cleanup = () => {
         bundleLoading = false;
         script.remove();
+      };
+      script.onerror = cleanup;
+      script.onload = () => {
+        cleanup();
+        if (style !== bundledStyle || !hasFullBundle(style) || !artworkRequest) return;
+        const activeImages = view === 'focus' ? [artworkRequest.images[cardIndex]] : artworkRequest.images;
+        const pending = activeImages.filter((node) => !decodedScenes.has(node));
+        if (!pending.length) return;
+        // Replace any stalled requests with the now-local images.
+        artworkRequest = undefined;
+        pending.forEach((node) => sceneLoads.get(node)?.cancel());
+        visibleArt();
       };
       document.head.append(script);
     }, 1200);
