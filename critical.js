@@ -1,4 +1,3 @@
-// Inline the first three cards so the initial view and quick swipes never wait on the network.
 (function () {
   window.flashcardAssetsPartial = true;
   const assets = window.flashcardAssets = window.flashcardAssets || {};
