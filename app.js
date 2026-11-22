@@ -319,7 +319,10 @@
     if (decodedScenes.has(node)) return pending.promise;
     if (node.fetchPriority !== 'high' || priority === 'high') node.fetchPriority = priority;
     if (pending) {
-      if (priority === 'high') pending.tryOtherPortrait?.();
+      if (priority === 'high') {
+        pending.prioritizePortrait?.();
+        pending.tryOtherPortrait?.();
+      }
       return pending.promise;
     }
     const request = {};
@@ -398,6 +401,14 @@
         }, source);
       };
       if (packedImage) {
+        if (preferPack && usesPortraitArt(node) && !navigator.connection?.saveData) {
+          // On promotion, give the pack a head start before requesting just the visible portrait.
+          request.prioritizePortrait = () => {
+            if (settled || started || !packPending || fallbackTimer) return;
+            fallbackTimer = setTimeout(load, 450);
+          };
+          if (priority === 'high') request.prioritizePortrait();
+        }
         if (priority !== 'low' && !preferPack) fallbackTimer = setTimeout(load, priority === 'high' ? 180 : 360);
         packedImage.then((source) => {
           packPending = false;
@@ -887,7 +898,7 @@
           if (index > 0) loadVisible(index - 1, 'low');
           if (index + 1 < deck.length) loadVisible(index + 1, 'low');
         };
-        if (inBundle) warmNeighbors();
+        if (inBundle || (bundledStyle && !navigator.connection?.saveData)) warmNeighbors();
         await selected;
         if (artworkRequest !== request || cardIndex !== index) return;
         if (!request.ready) {
@@ -901,7 +912,7 @@
           if (cardIndex === index) prewarmFocusedStyles(request);
         });
         // Keep nearby cards ready for swipes. Grid packs are loaded in grid view.
-        if (!inBundle && !navigator.connection?.saveData) setTimeout(warmNeighbors, 180);
+        if (!bundledStyle && !navigator.connection?.saveData) setTimeout(warmNeighbors, 180);
       };
       request.promote(cardIndex);
       return;
