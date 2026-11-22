@@ -117,51 +117,27 @@
         navigator.serviceWorker.register("./sw.js").catch(function () {});
       });
     }
-    // 首屏所有卡片加载完成后，延迟预取下一个单元的图片（不影响首屏）
+    // 首屏所有卡片加载完成后，延迟预取下一个单元图片（不影响首屏和后续切换）
     window.addEventListener("load", function () {
-      var lastUnit = -1;
-      function prefetchNextUnit(unitIndex) {
+      function startPrefetch() {
         var style = document.getElementById("style-select") ? document.getElementById("style-select").value : "textbook";
-        if (window.lessons && unitIndex + 1 < window.lessons.length) {
-          var nextWords = window.lessons[unitIndex + 1][5];
+        fetch("assets/navigation-readable/" + style + ".bin", { priority: "low", mode: "same-origin" }).catch(function () {});
+        if (window.lessons && window.lessons.length > 1) {
+          var nextWords = window.lessons[1][5];
           for (var i = 0; i < nextWords.length; i++) {
             fetch("assets/scenes-card-lite/" + style + "/" + nextWords[i][0] + ".avif", { priority: "low", mode: "same-origin" }).catch(function () {});
           }
         }
       }
-      function checkAndPrefetch() {
-        // 找当前单元号
-        var title = document.getElementById("lesson-title") ? document.getElementById("lesson-title").textContent : "";
-        var currentUnit = 0;
-        if (window.lessons) {
-          for (var i = 0; i < window.lessons.length; i++) {
-            if (window.lessons[i][1] === title) { currentUnit = i; break; }
-          }
-        }
-        if (currentUnit !== lastUnit) {
-          lastUnit = currentUnit;
-          // 预取 grid pack
-          var style = document.getElementById("style-select") ? document.getElementById("style-select").value : "textbook";
-          fetch("assets/navigation-readable/" + style + ".bin", { priority: "low", mode: "same-origin" }).catch(function () {});
-          // 预取下一个单元
-          prefetchNextUnit(currentUnit);
-        }
-      }
-      // 等首屏所有卡片加载完后开始
       function checkAllLoaded() {
         var imgs = document.querySelectorAll("#cards img[data-image]");
         if (imgs.length > 0 && Array.from(imgs).every(function(i) { return i.complete && i.naturalWidth > 0; })) {
-          setTimeout(checkAndPrefetch, 2000);
+          setTimeout(startPrefetch, 3000);
         } else {
           setTimeout(checkAllLoaded, 500);
         }
       }
       setTimeout(checkAllLoaded, 2000);
-      // 监听单元切换，自动预取下一个单元
-      var titleEl = document.getElementById("lesson-title");
-      if (titleEl && window.MutationObserver) {
-        new MutationObserver(function() { setTimeout(checkAndPrefetch, 500); }).observe(titleEl, { childList: true, characterData: true, subtree: true });
-      }
     });
   </script>
 </body>
