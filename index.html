@@ -117,27 +117,30 @@
         navigator.serviceWorker.register("./sw.js").catch(function () {});
       });
     }
-    // 首屏渲染后空闲时预取当前风格所有卡片图片（分批低优先级，SW缓存后切换单元秒读）
+    // 首屏所有卡片加载完成后，延迟预取下一个单元的图片（不影响首屏）
     window.addEventListener("load", function () {
-      var idle = window.requestIdleCallback || function (cb) { return setTimeout(cb, 3000); };
-      idle(function () {
+      function startPrefetch() {
         var style = document.getElementById("style-select") ? document.getElementById("style-select").value : "textbook";
         // 预取 grid pack
         fetch("assets/navigation-readable/" + style + ".bin", { priority: "low", mode: "same-origin" }).catch(function () {});
-        // 分批预取当前风格所有卡片图片（每批8张，间隔300ms）
-        if (window.lessons) {
-          var allWords = [];
-          window.lessons.forEach(function (l) { l[5].forEach(function (w) { allWords.push(w[0]); }); });
-          var i = 0;
-          function prefetchBatch() {
-            for (var j = 0; j < 8 && i < allWords.length; j++, i++) {
-              fetch("assets/scenes-card-lite/" + style + "/" + allWords[i] + ".avif", { priority: "low", mode: "same-origin" }).catch(function () {});
-            }
-            if (i < allWords.length) setTimeout(prefetchBatch, 300);
+        // 预取下一个单元的卡片图片（仅6-9张，不占用太多带宽）
+        if (window.lessons && window.lessons.length > 1) {
+          var nextWords = window.lessons[1][5];
+          for (var i = 0; i < nextWords.length; i++) {
+            fetch("assets/scenes-card-lite/" + style + "/" + nextWords[i][0] + ".avif", { priority: "low", mode: "same-origin" }).catch(function () {});
           }
-          prefetchBatch();
         }
-      });
+      }
+      // 等首屏所有卡片加载完后，再延迟3秒开始预取
+      function checkAllLoaded() {
+        var imgs = document.querySelectorAll("#cards img[data-image]");
+        if (imgs.length > 0 && Array.from(imgs).every(function(i) { return i.complete && i.naturalWidth > 0; })) {
+          setTimeout(startPrefetch, 3000);
+        } else {
+          setTimeout(checkAllLoaded, 500);
+        }
+      }
+      setTimeout(checkAllLoaded, 2000);
     });
   </script>
 </body>
