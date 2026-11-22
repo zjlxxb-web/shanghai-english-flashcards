@@ -971,6 +971,19 @@
         };
         if (inBundle || inWeChat || (bundledStyle && !navigator.connection?.saveData)) warmNeighbors();
         await selected;
+        // Warm the rest of this lesson one card at a time at low priority so quick
+        // swipes never wait on the network (WeChat's WebView has a small connection pool).
+        if (!navigator.connection?.saveData) {
+          (async () => {
+            const rest = order.filter((i) => Math.abs(i - index) > 1)
+              .sort((a, b) => Math.abs(a - index) - Math.abs(b - index));
+            for (const i of rest) {
+              if (artworkRequest !== request) return;
+              if (decodedScenes.has(images[i]) || sceneLoads.has(images[i])) continue;
+              await loadVisible(i, 'low');
+            }
+          })();
+        }
         if (artworkRequest !== request || cardIndex !== index) return;
         if (!request.ready) {
           request.ready = true;
