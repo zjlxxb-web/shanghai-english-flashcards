@@ -12,8 +12,8 @@
   <link rel="icon" href="assets/comic/book.webp" type="image/webp">
   <link rel="stylesheet" href="style.css?v=20">
   <script src="words.js?v=9" defer></script>
-  <script src="critical.js?v=4" defer></script>
-  <script src="app.js?v=43" defer></script>
+  <script src="critical.js?v=5" defer></script>
+  <script src="app.js?v=44" defer></script>
 </head>
 <body>
   <header class="top">
@@ -111,5 +111,12 @@
   </main>
   <audio id="voice" preload="none"></audio>
   <noscript><p class="wrap">请在支持 JavaScript 的浏览器中打开本页。</p></noscript>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>
