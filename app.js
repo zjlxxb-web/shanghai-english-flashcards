@@ -22,6 +22,9 @@
   const buttons = Array.from(document.querySelectorAll('[data-accent], [data-view]'));
   const styles = Array.from(styleSelect.options, (option) => option.value);
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // WeChat's WebView has a small connection pool and slower image decode. Avoid
+  // speculative downloads there: only load the cards the user can actually see.
+  const inWeChat = /MicroMessenger/i.test(navigator.userAgent);
   const speaker = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>';
   const saved = readSettings();
   const bundledStyle = window.flashcardBundledStyle;
@@ -167,7 +170,8 @@
   function cardAssetPaths(scenePath) {
     const webp = window.hdSceneAssetPaths?.[scenePath];
     if (!webp) return [];
-    if (window.flashcardAssets?.[webp] || (window.flashcardAssets && !bundledStyle)) return [webp];
+    if (window.flashcardAssets?.[webp]) return [webp];
+    if (window.flashcardAssets && !window.flashcardAssetsPartial && !bundledStyle) return [webp];
     const lighterWebp = webp.replace('scenes-card/', 'scenes-card-webp/');
     if (!compactCards) return [lighterWebp];
     const avif = webp.replace('scenes-card/', 'scenes-card-lite/').replace(/\.webp$/, '.avif');
@@ -303,7 +307,11 @@
   }
 
   function updateDecorativeArt() {
-    for (const node of [...heroArt, ...tabs.querySelectorAll('img'), ...lessonOptions.querySelectorAll('img')]) {
+    // Unit thumbnails are decorative in the WebView; skip most of them there.
+    const decorative = inWeChat
+      ? heroArt
+      : [...heroArt, ...tabs.querySelectorAll('img'), ...lessonOptions.querySelectorAll('img')];
+    for (const node of decorative) {
       node.fetchPriority = 'low';
       applyArt(node);
     }
@@ -610,7 +618,7 @@
 
   function prewarmFocusedStyles(request) {
     if (artworkRequest !== request || request.mode !== 'focus' || window.flashcardAssets ||
-        navigator.connection?.saveData) return;
+        navigator.connection?.saveData || inWeChat) return;
     const card = request.deck[cardIndex];
     if (focusedStyleWarm?.card !== card) {
       releaseFocusedStyles();
@@ -640,7 +648,7 @@
 
   async function prewarmGridStyles(request) {
     if (request.warming || artworkRequest !== request || (window.flashcardAssets && !bundledStyle) ||
-        !navigator.onLine || navigator.connection?.saveData) return;
+        !navigator.onLine || navigator.connection?.saveData || inWeChat) return;
     request.warming = true;
     const start = styles.indexOf(request.style);
     const others = styles.slice(start + 1).concat(styles.slice(0, start));
@@ -709,7 +717,7 @@
   }
 
   function prewarmNavigation(request) {
-    if (request.navigationWarm || (window.flashcardAssets && !bundledStyle) ||
+    if (inWeChat || request.navigationWarm || (window.flashcardAssets && !bundledStyle) ||
         (bundledStyle ? request.mode === 'grid' : navigator.connection?.saveData)) return request.navigationWarm;
     // The visible art is ready. Prepare the other view and the adjacent units in the current view.
     const {index} = request.lesson;
@@ -728,6 +736,7 @@
 
   function prepareNavigationOnIntent(button, index, mode) {
     const warm = () => {
+      if (inWeChat) return;
       const targetIndex = index ?? lessonIndex;
       const targetMode = mode ?? view;
       if (targetIndex !== lessonIndex || targetMode !== view) {
@@ -781,7 +790,7 @@
         image.src = 'data:image/webp;base64,' + encoded;
       }
     }
-    if (bundledStyle || navigator.connection?.saveData || !window.fetch || !window.AbortController ||
+    if (bundledStyle || inWeChat || navigator.connection?.saveData || !window.fetch || !window.AbortController ||
         !window.TextDecoder || !URL.createObjectURL) return;
     let preloaded = window.navigationReadablePreload;
     delete window.navigationReadablePreload;
@@ -960,7 +969,7 @@
           if (index > 0) loadVisible(index - 1, 'low');
           if (index + 1 < deck.length) loadVisible(index + 1, 'low');
         };
-        if (inBundle || (bundledStyle && !navigator.connection?.saveData)) warmNeighbors();
+        if (inBundle || inWeChat || (bundledStyle && !navigator.connection?.saveData)) warmNeighbors();
         await selected;
         if (artworkRequest !== request || cardIndex !== index) return;
         if (!request.ready) {
@@ -1235,7 +1244,7 @@
   byId('next').addEventListener('click', () => move(1));
   async function loadFirstLesson() {
     loadNavigationPreview();
-    if (!window.flashcardAssets) {
+    if (!window.flashcardAssets || window.flashcardAssetsPartial) {
       const probe = new Image();
       probe.src = 'data:image/avif;base64,AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAAB0AAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBjbwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAABZpcG1hAAAAAAAAAAEAAQOBAgMAAAAlbWRhdBIACgc4ADaQENBpMhAZQmMEwAA0AACQQMkcYIpq';
       try {
