@@ -25,10 +25,15 @@ async function build() {
   ])];
   const themes = Array.from(html.matchAll(/<option value="([a-z]+)"/g), ([, theme]) => theme);
   const destination = path.join(root, 'fast');
-  await fs.mkdir(destination, {recursive: true});
+  const bundleDirectory = 'assets/fast-style-data';
+  await Promise.all([destination, path.join(root, bundleDirectory)].map((directory) => fs.mkdir(directory, {recursive: true})));
+  // Inline the default lesson in both views and the opening portrait of each lesson.
+  const defaultWords = new Set(window.lessons[1][5].map(([word]) => wordKey(word)));
+  const openingWords = new Set(window.lessons.map((lesson) => wordKey(lesson[5][0][0])));
 
   for (const theme of themes) {
     const assets = {};
+    const deferred = {};
     const images = new Map();
     for (const word of keys) {
       const portrait = `assets/scenes-card-webp/${theme}/${word}.webp`;
@@ -37,8 +42,10 @@ async function build() {
         sharp(path.join(root, portrait)).resize({width: 480, withoutEnlargement: true}).webp({quality: 53, effort: 6}).toBuffer(),
         sharp(path.join(root, landscape)).resize({width: 320, withoutEnlargement: true}).webp({quality: 52, effort: 6}).toBuffer()
       ]);
-      assets[`assets/scenes-card/${theme}/${word}.webp`] = dataUrl(single);
-      assets[landscape] = dataUrl(grid);
+      const portraits = openingWords.has(word) || defaultWords.has(word) ? assets : deferred;
+      portraits[`assets/scenes-card/${theme}/${word}.webp`] = dataUrl(single);
+      const landscapes = defaultWords.has(word) ? assets : deferred;
+      landscapes[landscape] = dataUrl(grid);
       images.set(word, {grid, focus: single});
     }
     for (const icon of icons) {
@@ -60,7 +67,11 @@ async function build() {
         Buffer.concat([size, table, ...files.map(({bytes}) => bytes)]));
     })));
 
+    const bundlePath = `${bundleDirectory}/${theme}.js`;
+    await fs.writeFile(path.join(root, bundlePath),
+      `Object.assign(window.flashcardAssets, ${JSON.stringify(deferred)});\nwindow.flashcardBundleReady = true;\n`);
     const boot = inlineScript(`window.flashcardBundledStyle = ${JSON.stringify(theme)};\n` +
+      `window.flashcardDeferredBundle = ${JSON.stringify(bundlePath + '?v=1')};\n` +
       `window.flashcardAssets = ${JSON.stringify(assets, null, 2)};\n` + words + '\n' + app);
     const result = html
       .replace(/<head>/, '<head>\n  <base href="../">')
@@ -68,7 +79,7 @@ async function build() {
       .replace(/<link rel="stylesheet"[^>]+>/, () => `<style>\n${css}\nbody.fast-loading > main { display: none; }\n#fast-loading { padding: 14px 0; }\n</style>`)
       .replace(/\s*<script src="words\.js[^>]*><\/script>\s*<script src="app\.js[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/, '')
       .replace('<body>', '<body class="fast-loading">')
-      .replace('<main class="wrap">', '<p id="fast-loading" class="wrap" role="status">正在一次下载此风格的全部卡图。完成后可直接切换单元和视图。</p>\n  <main class="wrap">')
+      .replace('<main class="wrap">', '<p id="fast-loading" class="wrap" role="status">正在打开闪卡…</p>\n  <main class="wrap">')
       .replace(/<script id="navigation-preview-data"[\s\S]*?<\/script>/, (preview) => preview + '\n  ' + boot);
     const withOptionalTrace = result
       .replace('</body>', `<script>

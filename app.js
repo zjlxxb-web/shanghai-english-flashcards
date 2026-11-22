@@ -25,6 +25,7 @@
   const speaker = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>';
   const saved = readSettings();
   const bundledStyle = window.flashcardBundledStyle;
+  const deferredBundle = window.flashcardDeferredBundle;
   const portraitLayout = !window.flashcardAssets || Boolean(bundledStyle);
   const requestedUnit = new URLSearchParams(window.location.search).get('unit');
   const requestedStyle = new URLSearchParams(window.location.search).get('style');
@@ -41,6 +42,7 @@
   let scrollFrame;
   let focusWasScrolled = false;
   let compactCards = false;
+  let bundleLoading = false;
   const cardScenes = new WeakMap();
   const sceneLoads = new WeakMap();
   const decodedScenes = new WeakSet();
@@ -105,6 +107,30 @@
     const revised = /^assets\/scenes-card(?:-lite|-webp)\//.test(path) || path.startsWith('assets/scenes-card/cute/') ||
       /^assets\/scenes-card(?:-lite|-webp)?\/pig\//.test(path);
     return revised ? path + '?v=4' : path;
+  }
+
+  function hasFullBundle(imageStyle) {
+    return imageStyle === bundledStyle && (!deferredBundle || window.flashcardBundleReady);
+  }
+
+  function prepareFullBundle() {
+    if (!deferredBundle || style !== bundledStyle || hasFullBundle(style) || bundleLoading ||
+        !navigator.onLine || navigator.connection?.saveData) return;
+    bundleLoading = true;
+    setTimeout(() => {
+      if (style !== bundledStyle) {
+        bundleLoading = false;
+        return;
+      }
+      const script = make('script');
+      script.fetchPriority = 'low';
+      script.src = deferredBundle;
+      script.onload = script.onerror = () => {
+        bundleLoading = false;
+        script.remove();
+      };
+      document.head.append(script);
+    }, 1200);
   }
 
   function wordKey(word) {
@@ -435,7 +461,7 @@
   }
 
   function artworkPackFor(lesson, imageStyle, priority, mode = 'grid') {
-    if (imageStyle === bundledStyle || (window.flashcardAssets && !bundledStyle) ||
+    if (hasFullBundle(imageStyle) || (window.flashcardAssets && !bundledStyle) ||
         !window.fetch || !window.AbortController || !window.TextDecoder || !URL.createObjectURL) return;
     const active = lesson.index === lessonIndex && imageStyle === style;
     const key = bundledStyle ? mode + ':' + imageStyle : imageStyle;
@@ -482,8 +508,10 @@
 
   function loadCardScene(lesson, card, node, priority) {
     const {sceneStyle, sceneView} = node.dataset;
-    const index = cardScenes.get(card).index;
-    const packedImage = (bundledStyle || sceneView === 'grid') && !sceneLoads.has(node)
+    const {index, word} = cardScenes.get(card);
+    const directory = sceneView === 'focus' ? 'scenes-card' : 'scenes';
+    const embedded = window.flashcardAssets?.['assets/' + directory + '/' + sceneStyle + '/' + word + '.webp'];
+    const packedImage = (bundledStyle || sceneView === 'grid') && !embedded && !sceneLoads.has(node)
       ? artworkPackFor(lesson, sceneStyle, priority, sceneView)?.images[index] : null;
     return loadScene(node, priority, packedImage, Boolean(bundledStyle));
   }
@@ -589,7 +617,7 @@
   }
 
   function prewarmView(index, mode, selected = 0) {
-    const inBundle = style === bundledStyle;
+    const inBundle = hasFullBundle(style);
     if (inBundle && mode === 'grid') return;
     if ((!inBundle && ((window.flashcardAssets && !bundledStyle) || navigator.connection?.saveData ||
         !navigator.onLine)) || !window.lessons[index]) return;
@@ -864,6 +892,7 @@
         if (artworkRequest !== request || cardIndex !== index) return;
         if (!request.ready) {
           request.ready = true;
+          prepareFullBundle();
           setTimeout(() => {
             if (artworkRequest === request) updateDecorativeArt();
           }, 180);
@@ -896,6 +925,7 @@
     Promise.all([...early, ...remaining]).then(() => {
       if (artworkRequest !== request) return;
       request.ready = true;
+      prepareFullBundle();
       if (bundledStyle && !navigator.connection?.saveData) warmFocusCard(cardIndex, true);
       prewarmNavigation(request);
       // Let the selected style finish rendering before warming offscreen artwork.
