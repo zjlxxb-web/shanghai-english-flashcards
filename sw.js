@@ -7,7 +7,7 @@ const CORE = [
   "./style.css?v=20",
   "./words.js?v=9",
   "./critical.js?v=5",
-  "./app.js?v=44",
+  "./app.js?v=45",
   "./credits.html"
 ];
 
