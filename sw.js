@@ -1,6 +1,6 @@
 // Service Worker for 沪教英语闪卡
 // 策略：核心资源预缓存；图片等运行时用 stale-while-revalidate
-const CACHE = "shanghai-flashcards-v8";
+const CACHE = "shanghai-flashcards-v9";
 const CORE = [
   "./",
   "./index.html",
